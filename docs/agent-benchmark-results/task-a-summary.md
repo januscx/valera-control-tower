@@ -52,3 +52,13 @@ Use Superpowers when verification discipline matters and external research is no
 Use gstack research-enabled when architecture judgment, product framing, or unfamiliar design territory matters.
 
 Do not treat gstack no-web as the main gstack result. Keep it as a control run only.
+
+## Native workflow run
+
+The following run is recorded separately because it is not Task A apples-to-apples.
+
+| Candidate | Branch | Commit | Time | Diff size | Mode | Average | Interpretation |
+|---|---|---:|---:|---:|---|---:|---|
+| GSD Core native docs update | benchmark/gsd-core-native/docs-update | cc0f90c | 4m30s | 264 insertions, 7 deletions | gsd-docs-update auto force | 8.5 | Best demonstration of a full documentation workflow, but not directly comparable to Task A. |
+
+Native GSD generated canonical documentation, workflow artifacts, verification files, and its own commit. Typed subagent dispatch failed under Codex with a child-model resolution error, so the workflow used sequential fallback.
