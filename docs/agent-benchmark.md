@@ -6,15 +6,11 @@ This benchmark compares different coding-agent workflows on the same Valera Cont
 
 The goal is not to prove that one tool is fashionable. The goal is to find which workflow produces the best practical result for this project with the least cleanup.
 
-## Baseline commit
+## Baseline reference
 
-Initial benchmark baseline:
+Initial benchmark baseline tag: `benchmark-task-a-start`
 
-```text
-67d8f781e33e5b327e7a7240cfad42f9bcf99019
-```
-
-All benchmark runs should start from this commit.
+All benchmark runs should start from this Git tag.
 
 ## Candidates
 
