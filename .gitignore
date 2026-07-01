@@ -1,0 +1,30 @@
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+auth.json
+credentials.json
+token.json
+
+# Python
+__pycache__/
+.venv/
+venv/
+*.pyc
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Logs / temp
+logs/
+tmp/
+*.log
