@@ -48,9 +48,15 @@ SO-ARM Readiness Phase 1 adds a fail-closed metadata tool for the known
 controller path. The default command exits with code `2`; the explicit
 `--enable-metadata-check` path checks filesystem metadata and writes ignored
 reports under `tmp/so-arm-readiness/`. The legacy `--enable-serial-open` flag is
-kept as a compatibility alias, but it is metadata-only in Phase 1. Neither path
-opens serial, sends bytes, enables torque, commands movement, calls actuators,
-runs the live camera, or performs a physical demo.
+kept as a compatibility alias, but it remains metadata-only.
+
+SO-ARM Readiness Phase 2 adds `--enable-permission-check`, which records Linux
+device ownership, current user/group membership, read/write access checks, and
+safe operator recommendations. Phase 1 and Phase 2 are adapter-adjacent evidence
+gathering only. They are not hardware control, not protocol validation, not
+torque readiness, and not movement readiness. These probe modes do not open
+serial, send bytes, enable torque, command movement, call actuators, run the
+live camera, or perform a physical demo.
 
 ## Architecture Decision
 
@@ -78,8 +84,10 @@ queue.
 Hardware probes follow the same boundary. A probe may produce a structured
 result for the orchestrator or a local operator report, but it must not append
 events directly, update dashboard artifacts directly, or bypass safety gates.
-For SO-ARM Readiness Phase 1, the probe is not an adapter control path at all:
-it is a metadata report over filesystem paths and permissions.
+For SO-ARM Readiness Phases 1 and 2, the probe is not an adapter control path at
+all: it is a metadata and permissions report over filesystem paths and operator
+setup. Phase 3 should introduce adapter contracts before any serial/protocol
+work.
 
 ## Commands, Results, And Events
 
@@ -170,6 +178,12 @@ with explicit safety gates. The domain task model, dashboard replay contract,
 and event log should not import camera SDKs, OpenCV live capture objects,
 LeRobot objects, serial handles, or device paths.
 
+The next SO-ARM work package should be an arm adapter contract skeleton:
+`ArmAdapter` or `HardwareAdapter` protocol, `SimArmAdapter`, a
+`MetadataOnlySOArmAdapter`, and a capability model. The orchestrator should use
+only the adapter interface. It should not import LeRobot, pyserial, serial
+device paths, or hardware-control libraries directly.
+
 ## SO-ARM 101 Boundary
 
 The SO-ARM 101 integration should start as probe-only.
@@ -184,8 +198,8 @@ Initial allowed behavior:
 
 Initial disallowed behavior:
 
-- serial open during Phase 1 readiness
-- serial bytes during Phase 1 readiness
+- serial open during Phase 1/2 readiness
+- serial bytes during Phase 1/2 readiness
 - torque enable
 - movement commands
 - homing commands
