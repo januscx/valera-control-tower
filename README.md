@@ -57,11 +57,13 @@ enabled:
 
 ```bash
 python3 scripts/run_physical_demo.py --enable-live-camera
+.venv/bin/python scripts/check_physical_demo_output.py
 ```
 
 The physical demo uses real live camera vision for object detection, then records
 operator-confirmed manipulation and delivery steps. It does not move the robot or
 control the arm directly, and it is not part of the stable hybrid smoke path.
+See `docs/physical_demo_video.md` for the rehearsal and filming checklist.
 
 Open the generated dashboard:
 
