@@ -33,6 +33,10 @@ The orchestrator owns mission flow and event creation. Adapters expose narrow
 hardware or simulation capabilities. Adapters do not write directly to the event
 log, dashboard, or enterprise integration layer.
 
+The dashboard is a read-only projection over events and artifacts. It must not
+send hardware commands directly. Any future operator action must enter through
+an explicit orchestration command path with safety gates and event recording.
+
 ```text
 Task / Mission Orchestrator
   -> command/request to adapter
@@ -64,6 +68,27 @@ Orchestrator
 This distinction prevents dashboards and replays from showing requested work as
 completed work.
 
+## Adapter Failure Semantics
+
+Adapters must fail closed.
+
+Adapter failures should be returned as structured results where possible and
+converted by the orchestrator into events such as:
+
+```text
+adapter.timeout
+adapter.unavailable
+hardware.probe.failed
+camera.frame.capture_failed
+vision.detection.failed
+hardware.motion.blocked
+```
+
+An adapter failure must not be treated as a successful mission step. If an
+adapter result is missing, ambiguous, or unsafe, the orchestrator records a
+failure or blocking event and stops, falls back to simulation, or falls back to
+operator-confirmed mode.
+
 ## Adapter Contracts
 
 Do not create one large `BaseAdapter` that all hardware must inherit from.
@@ -75,7 +100,7 @@ Common adapter identity:
 AdapterIdentity
 - adapter_id
 - adapter_type
-- mode: simulation | probe | hardware
+- mode: simulation | dry_run | probe | hardware
 - capabilities()
 - health()
 ```
@@ -171,10 +196,15 @@ Hardware access is gated by explicit safety levels:
 
 - `SIM_ONLY`: no hardware access.
 - `PROBE_ONLY`: hardware may be detected and queried, but must not move.
-- `OPERATOR_CONFIRMED`: operator confirms physical steps; software records facts.
+- `OPERATOR_CONFIRMED`: the software does not move hardware. It asks the
+  operator to perform or confirm a physical step, then records the observed
+  outcome.
 - `GUARDED_MOTION`: limited motion is allowed with explicit flags, workspace
   profile, and confirmation token.
 - `FULL_HARDWARE`: future mode, not part of the current PoC.
+
+CI and replay paths should use simulation or no-op adapters. They must not
+require physical devices.
 
 The first SO-ARM 101 hardware stage should require flags equivalent to:
 
@@ -192,6 +222,10 @@ The first motion stage should require flags equivalent to:
 --workspace-profile tabletop_v1
 --confirm-token MOVE_ARM
 ```
+
+A workspace profile defines the allowed physical envelope for guarded motion:
+table bounds, arm mount assumptions, forbidden zones, speed limits, and allowed
+motion primitives. Guarded motion cannot run without a workspace profile.
 
 Motion must fail closed when any required gate is missing.
 
@@ -290,6 +324,7 @@ change behind it.
 - No LeRobot types in the Valera mission model.
 - No binary image/video data embedded in event JSON.
 - No broad `BaseAdapter` abstraction that hides important hardware differences.
+- No CI, replay, or dashboard path requiring physical hardware.
 
 ## Documentation Split
 
@@ -300,7 +335,7 @@ change behind it.
 - `docs/hardware-runbook.md`: future operational notes for real ports, commands,
   wiring, troubleshooting, and checklists once there is hardware behavior to run.
 
-## References
+## References / Implementation Inputs
 
 - LeRobot SO-101 documentation: https://huggingface.co/docs/lerobot/en/so101
 - NVIDIA SO-101 operating notes: https://docs.nvidia.com/learning/physical-ai/sim-to-real-so-101/latest/08-operating-so101.html
