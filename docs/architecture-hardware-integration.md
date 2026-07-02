@@ -37,6 +37,11 @@ grasp, real release, base movement, torque enablement, or actuator calls have
 been validated. The next step is readiness probing, not control; see
 `docs/hardware_bringup_v0.md`.
 
+A read-only inventory run on `valera` confirms the Orbbec Astra Pro camera path
+through `/dev/video0`, `/dev/video1`, and `/dev/media0`. A CH340 serial bridge
+is present as `/dev/ttyUSB0`, but its role is unconfirmed; the SO-ARM 101 and
+tracked base remain unidentified and unprobed.
+
 ## Architecture Decision
 
 Use an adapter-first architecture.

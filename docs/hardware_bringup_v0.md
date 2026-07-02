@@ -97,6 +97,37 @@ Use `latest.md` for human review and `latest.json` for exact device paths and
 command output. Follow-up PRs should treat all candidate labels as possible
 matches only, then add separate probe-only code with explicit safety notes.
 
+## Valera inventory snapshot - 2026-07-02
+
+A read-only Hardware Inventory v0 run on `valera` confirmed:
+
+- Orbbec Astra Pro is visible as `/dev/video0`, `/dev/video1`, and
+  `/dev/media0`.
+- The user `janus` is in the `video` group.
+- `v4l2-ctl --list-devices` reports `Astra Pro HD Camera: Astra Pro`.
+- USB inventory shows Orbbec devices `2bc5:0501` and `2bc5:0403`.
+- A CH340 USB serial converter is visible as `/dev/ttyUSB0`.
+- `/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0` resolves to
+  `../../ttyUSB0`.
+
+This confirms the camera path and one generic USB serial bridge.
+
+It does not yet identify `/dev/ttyUSB0` as SO-ARM 101 or the tracked base. No
+serial ports were opened. No commands were sent to devices. No arm/base
+actuation was attempted.
+
+### Next safe checks
+
+- physically label or trace what is connected to the CH340 adapter
+- document whether `/dev/ttyUSB0` belongs to SO-ARM 101, the tracked base, or
+  another controller
+- before opening serial, define a read-only serial probe plan
+- serial probe must not send movement commands
+- serial probe must not enable torque
+- tracked base must remain disabled/off-ground before any future movement test
+- SO-ARM 101 must remain in a safe pose and torque-disabled before any future
+  motion test
+
 ## SO-ARM 101 probe checklist
 
 Probe-only:
