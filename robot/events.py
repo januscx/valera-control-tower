@@ -103,7 +103,7 @@ class EventEnvelope:
             "mode": self.mode.value,
             "schema_version": self.schema_version,
             "payload": self.payload,
-            "evidence_refs": self.evidence_refs,
+            "evidence_refs": [_evidence_ref_to_dict(ref) for ref in self.evidence_refs],
         }
         if self.error is not None:
             data["error"] = {
@@ -111,3 +111,9 @@ class EventEnvelope:
                 "message": self.error.message,
             }
         return data
+
+
+def _evidence_ref_to_dict(ref: Any) -> Any:
+    if hasattr(ref, "to_dict"):
+        return ref.to_dict()
+    return ref
