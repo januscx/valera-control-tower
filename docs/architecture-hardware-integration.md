@@ -116,6 +116,27 @@ Concrete adapter families:
 Adapters should return structured result objects. They should not expose
 framework-specific objects to the rest of the project.
 
+## Current Adapter Implementation Status
+
+The repository now has a complete simulation adapter path:
+
+- `SimCameraAdapter` is role-based and emits synthetic `sim://` frame artifact
+  URIs.
+- `SimVisionAdapter` returns configured deterministic detections.
+- `SimArmAdapter` reports simulation capabilities and simulated grasp results
+  without torque enablement or hardware access.
+- `AdapterRuntimeConfig` builds the simulation adapter bundle and fails closed
+  for hardware mode.
+- `run_adapter_simulated_mission` records adapter results into the event log as
+  facts such as `camera.frame.captured`, `vision.object.detected`, and
+  `hardware.probe.completed`.
+
+This means the next real-camera or real-arm work should add new adapter
+implementations behind the same result models, then extend runtime selection
+with explicit safety gates. The domain task model, dashboard replay contract,
+and event log should not import camera SDKs, OpenCV live capture objects,
+LeRobot objects, serial handles, or device paths.
+
 ## SO-ARM 101 Boundary
 
 The SO-ARM 101 integration should start as probe-only.

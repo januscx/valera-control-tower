@@ -18,6 +18,22 @@ From the repository root:
 python3 scripts/run_hybrid_demo.py
 ```
 
+To run the adapter-backed simulation path for camera, vision, and arm adapter
+boundaries:
+
+```bash
+python3 scripts/run_adapter_sim_demo.py
+```
+
+This writes:
+
+- `data/runs/adapter-sim-demo-001/replay.json`
+- `data/runs/adapter-sim-demo-001/dashboard.html`
+
+The adapter simulation demo uses only synthetic artifacts such as
+`sim://camera/wrist/frame-000001`. It does not use OpenCV, live camera capture,
+serial ports, USB devices, LeRobot, or arm motion.
+
 To verify the full local demo chain, including replay, dashboard, evidence
 files, and previews:
 
@@ -35,6 +51,14 @@ The command should print:
 - `Replay path: /.../data/runs/hybrid-fixture-task-001/replay.json`
 - `Dashboard path: /.../data/runs/hybrid-fixture-task-001/dashboard.html`
 - Evidence paths under `data/evidence/hybrid-fixture-task-001/`
+
+For `scripts/run_adapter_sim_demo.py`, the command should print:
+
+- `PASS: Adapter simulation demo`
+- `Task id: adapter-sim-demo-001`
+- `Final status: completed`
+- `Event count: 18`
+- Replay and dashboard paths under `data/runs/adapter-sim-demo-001/`
 
 ## Open the dashboard
 
@@ -69,6 +93,21 @@ python3 scripts/run_live_camera_probe.py --enable-live-camera
 ```
 
 The live camera probe is not part of the stable hybrid smoke path.
+
+## Camera and arm adapter handoff
+
+The current adapter demo establishes the handoff point for real hardware work:
+
+1. Camera implementations should conform to `CameraAdapter`, select cameras by
+   `CameraRole`, and return `FrameCaptureResult` with artifact references.
+2. Vision implementations should conform to `VisionAdapter` and return
+   deterministic project-owned `VisionResult` data for a given artifact.
+3. Arm implementations should conform to `ArmAdapter`; initial hardware work
+   should remain probe-only and must not enable torque or move the arm.
+4. `robot/adapter_runtime.py` is the single place to add explicit non-simulation
+   adapter selection after safety gates are designed.
+
+Until those gates exist, hardware mode intentionally fails closed.
 
 ## Physical demo runner
 

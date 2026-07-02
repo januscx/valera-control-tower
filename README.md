@@ -36,6 +36,15 @@ Run the hybrid evidence demo:
 python3 scripts/run_hybrid_demo.py
 ```
 
+Run the adapter-backed simulation demo:
+
+```bash
+python3 scripts/run_adapter_sim_demo.py
+```
+
+This exercises the camera, vision, and arm adapter boundaries without opening
+real cameras, serial ports, USB devices, or arm runtimes.
+
 Verify the full local hybrid demo chain:
 
 ```bash
@@ -92,3 +101,21 @@ They are safe to regenerate locally and should not be committed.
 - `enterprise/` - enterprise integration schemas and process examples
 - `scripts/` - repeatable helper and validation scripts
 - `dashboard/` - local static dashboard rendering
+
+## Adapter readiness
+
+The adapter path is ready for real camera and arm implementations to be added
+behind explicit safety gates:
+
+- `robot/adapters/base.py`, `arm.py`, `camera.py`, and `vision.py` define
+  project-owned contracts and result models.
+- `robot/adapters/sim_arm.py`, `sim_camera.py`, and `sim_vision.py` provide
+  deterministic simulation implementations.
+- `robot/adapter_runtime.py` builds a simulation adapter bundle from explicit
+  config and fails closed for hardware mode.
+- `robot/adapter_sim_mission.py` proves the orchestration boundary by recording
+  adapter results as events.
+
+Real camera or arm adapters should be added as new implementation files, not by
+changing the Valera task model. Hardware mode remains disabled until explicit
+probe and safety gates exist.
