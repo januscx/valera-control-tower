@@ -42,6 +42,16 @@ Verify the full local hybrid demo chain:
 python3 scripts/smoke_hybrid_demo.py
 ```
 
+Optional live camera probe, fail-closed unless explicitly enabled:
+
+```bash
+python3 scripts/run_live_camera_probe.py
+python3 scripts/run_live_camera_probe.py --enable-live-camera
+```
+
+The live probe captures one frame only and does not move the robot or control the
+arm. It is not part of the stable hybrid smoke path.
+
 Open the generated dashboard:
 
 ```bash

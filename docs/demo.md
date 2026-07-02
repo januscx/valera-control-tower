@@ -49,6 +49,27 @@ On Linux without `open`, open the same file directly in a browser.
 For structured image evidence refs, the dashboard shows local evidence links and
 inline previews when the referenced files are under `data/evidence/`.
 
+## Optional live camera probe
+
+The live camera probe is an opt-in perception check for a local robot camera. It
+captures one frame only, runs the existing `real_vision` marker detector, writes
+a replay and dashboard under `data/runs/live-camera-probe-001/`, and then exits.
+It does not move the robot, control the arm, or call hardware actuators.
+
+By default it fails closed before opening any camera:
+
+```bash
+python3 scripts/run_live_camera_probe.py
+```
+
+To explicitly allow one-frame local camera access:
+
+```bash
+python3 scripts/run_live_camera_probe.py --enable-live-camera
+```
+
+The live camera probe is not part of the stable hybrid smoke path.
+
 ## Demo video walkthrough
 
 1. Run `python3 scripts/run_hybrid_demo.py`.
