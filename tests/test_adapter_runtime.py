@@ -8,6 +8,7 @@ from robot.adapters import (
     SimCameraAdapter,
     SimVisionAdapter,
 )
+from robot.adapters.so_arm_metadata import MetadataOnlySOArmAdapter
 from robot.adapters.vision import BoundingBox, VisionDetection
 from robot.models import FailureCode, ValidationError
 
@@ -59,3 +60,23 @@ def test_adapter_runtime_fails_closed_for_hardware_mode_until_safety_gates_exist
         build_adapter_runtime(config)
 
     assert exc.value.code == FailureCode.HARDWARE_MODE_NOT_ENABLED
+
+
+def test_adapter_runtime_can_select_metadata_only_so_arm_probe(tmp_path):
+    device = tmp_path / "ttyUSB0"
+    device.write_text("", encoding="utf-8")
+
+    runtime = build_adapter_runtime(
+        AdapterRuntimeConfig(
+            arm_adapter_kind="metadata_only_so_arm",
+            so_arm_device_path=str(device),
+        )
+    )
+
+    assert isinstance(runtime.arm, MetadataOnlySOArmAdapter)
+    assert runtime.arm.identity.mode == AdapterMode.PROBE
+    probe = runtime.arm.probe()
+    assert probe.ok is True
+    assert probe.capabilities.can_move is False
+    assert probe.capabilities.can_enable_torque is False
+    assert probe.state.metadata["serial_opened"] is False
