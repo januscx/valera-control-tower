@@ -7,6 +7,14 @@ from robot.adapters.base import (
     AdapterStatus,
     AdapterType,
 )
+from robot.adapters.arm import (
+    ArmAdapter,
+    ArmCapabilities,
+    ArmCommandResult,
+    ArmJointState,
+    ArmProbeResult,
+    ArmState,
+)
 
 __all__ = [
     "AdapterFailure",
@@ -16,4 +24,10 @@ __all__ = [
     "AdapterResult",
     "AdapterStatus",
     "AdapterType",
+    "ArmAdapter",
+    "ArmCapabilities",
+    "ArmCommandResult",
+    "ArmJointState",
+    "ArmProbeResult",
+    "ArmState",
 ]
