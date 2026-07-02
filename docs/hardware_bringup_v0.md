@@ -110,17 +110,21 @@ A read-only Hardware Inventory v0 run on `valera` confirmed:
 - `/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0` resolves to
   `../../ttyUSB0`.
 
-This confirms the camera path and one generic USB serial bridge.
+This confirms the camera path and the SO-ARM 101 motor controller connection
+path. The SO-ARM identification is based on operator-confirmed physical kit
+provenance: the CH340 adapter is the controller that came with the SO-101 motor
+kit. It is not automatic protocol validation.
 
-It does not yet identify `/dev/ttyUSB0` as SO-ARM 101 or the tracked base. No
-serial ports were opened. No commands were sent to devices. No arm/base
-actuation was attempted.
+It does not identify the tracked base. No serial ports were opened. No commands
+were sent to devices. No torque or motion was enabled. No arm/base actuation was
+attempted.
 
 ### Next safe checks
 
-- physically label or trace what is connected to the CH340 adapter
-- document whether `/dev/ttyUSB0` belongs to SO-ARM 101, the tracked base, or
-  another controller
+- physically label the CH340 adapter as the SO-ARM 101 motor controller
+  connection
+- document that `/dev/ttyUSB0` belongs to SO-ARM 101 by operator/kit provenance,
+  not by protocol validation
 - before opening serial, define a read-only serial probe plan
 - serial probe must not send movement commands
 - serial probe must not enable torque
@@ -128,11 +132,35 @@ actuation was attempted.
 - SO-ARM 101 must remain in a safe pose and torque-disabled before any future
   motion test
 
+### SO-ARM 101 readiness sequence
+
+Stage 0: docs/inventory identity. Record `/dev/ttyUSB0` and
+`/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0` as the SO-ARM 101 motor
+controller path based on operator-confirmed kit provenance.
+
+Stage 1: fail-closed probe wrapper. Add a command that reports the known path
+and refuses serial access unless the operator provides an explicit opt-in flag.
+
+Stage 2: explicit opt-in serial open. Any serial-open action must be
+operator-triggered and must stop after checking path existence and permissions
+until a safe read-only protocol is defined.
+
+Stage 3: read-only identity/state query. Only add protocol/library reads if the
+SO-ARM 101 stack supports identity or state queries without writes, torque
+enablement, homing, or movement.
+
+Stage 4: torque-disabled state verification. Verify the arm remains
+torque-disabled before any later motion planning.
+
+Stage 5: separate future controlled motion plan. Motion, torque enablement, base
+control, and actuator calls remain out of scope for Hardware Bring-up v0 and
+must be planned in a separate PR with explicit safety gates.
+
 ## SO-ARM 101 probe checklist
 
 Probe-only:
 
-- [ ] identify connection/interface
+- [x] identify connection/interface by operator-confirmed kit provenance
 - [ ] identify required runtime/library
 - [ ] read model/config if possible
 - [ ] read joint/state if possible
