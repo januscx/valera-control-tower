@@ -8,6 +8,9 @@ from robot.models import ExecutionMode, Task, Zone
 from robot.vision import run_fixture_detection
 
 
+LIVE_CAMERA_SOURCE = "valera.live_camera_probe"
+
+
 class LiveCameraDisabledError(RuntimeError):
     """Raised when live camera access is requested without explicit opt-in."""
 
@@ -88,6 +91,8 @@ def run_live_camera_marker_probe(
         sequence=sequence,
         correlation_id=correlation_id or task_id,
         evidence_base_path=output_root,
+        source_adapter=LIVE_CAMERA_SOURCE,
+        image_context="live camera frame",
     )
 
 

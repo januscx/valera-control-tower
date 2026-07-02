@@ -9,6 +9,9 @@ from robot.events import EventType
 from robot.models import ExecutionMode
 
 
+LIVE_CAMERA_SOURCE = "valera.live_camera_probe"
+
+
 class FakeCapture:
     def __init__(self, opened=True, frame=None, read_ok=True):
         self.opened = opened
@@ -146,6 +149,61 @@ def test_frame_write_failure_raises_clear_error(tmp_path):
     assert capture.released is True
 
 
+def test_live_camera_marker_probe_passes_live_source_context(tmp_path, monkeypatch):
+    import robot.live_camera as live_camera
+
+    captured = {}
+
+    def fake_capture_live_camera_frame(*, output_path, **kwargs):
+        captured["capture_output_path"] = output_path
+        return output_path
+
+    def fake_run_fixture_detection(
+        *,
+        task,
+        image_path,
+        sequence,
+        correlation_id,
+        evidence_base_path,
+        source_adapter,
+        image_context,
+    ):
+        captured.update(
+            {
+                "task": task,
+                "image_path": image_path,
+                "sequence": sequence,
+                "correlation_id": correlation_id,
+                "evidence_base_path": evidence_base_path,
+                "source_adapter": source_adapter,
+                "image_context": image_context,
+            }
+        )
+        return object()
+
+    monkeypatch.setattr(live_camera, "capture_live_camera_frame", fake_capture_live_camera_frame)
+    monkeypatch.setattr(live_camera, "run_fixture_detection", fake_run_fixture_detection)
+
+    event = live_camera.run_live_camera_marker_probe(
+        task_id="live-probe-task-004",
+        object_id="VALERA-CUBE-001",
+        camera_index=0,
+        enabled=True,
+        output_root=tmp_path,
+        sequence=12,
+        correlation_id="corr-live-probe-004",
+    )
+
+    assert event is not None
+    assert captured["capture_output_path"] == tmp_path / "tmp" / "live-camera-probe-frame.png"
+    assert captured["image_path"] == captured["capture_output_path"]
+    assert captured["sequence"] == 12
+    assert captured["correlation_id"] == "corr-live-probe-004"
+    assert captured["evidence_base_path"] == tmp_path
+    assert captured["source_adapter"] == LIVE_CAMERA_SOURCE
+    assert captured["image_context"] == "live camera frame"
+
+
 def test_live_camera_marker_probe_emits_real_vision_object_found_for_marker_frame(tmp_path, monkeypatch):
     cv2 = pytest.importorskip("cv2")
     pytest.importorskip("cv2.aruco")
@@ -164,9 +222,11 @@ def test_live_camera_marker_probe_emits_real_vision_object_found_for_marker_fram
 
     assert event.event_type == EventType.OBJECT_FOUND
     assert event.mode == ExecutionMode.REAL_VISION
+    assert event.source == LIVE_CAMERA_SOURCE
     assert event.payload["object_id"] == "VALERA-CUBE-001"
     assert event.payload["marker_id"] == 7
     assert len(event.evidence_refs) == 2
+    assert {ref.source_adapter for ref in event.evidence_refs} == {LIVE_CAMERA_SOURCE}
     assert (tmp_path / "tmp" / "live-camera-probe-frame.png").is_file()
 
 
@@ -191,8 +251,11 @@ def test_live_camera_marker_probe_emits_object_not_found_for_no_marker_frame(tmp
 
     assert event.event_type == EventType.OBJECT_NOT_FOUND
     assert event.mode == ExecutionMode.REAL_VISION
+    assert event.source == LIVE_CAMERA_SOURCE
     assert event.payload == {"object_id": "VALERA-CUBE-001", "status": "not_found"}
+    assert event.error.message == "no ArUco marker detected in live camera frame"
     assert len(event.evidence_refs) == 1
+    assert event.evidence_refs[0].source_adapter == LIVE_CAMERA_SOURCE
 
 
 def test_live_camera_marker_probe_replay_dashboard_rendering(tmp_path, monkeypatch):
