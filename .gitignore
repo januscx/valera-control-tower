@@ -33,3 +33,4 @@ tmp/
 # Runtime evidence
 data/evidence/
 data/dashboard/
+data/runs/

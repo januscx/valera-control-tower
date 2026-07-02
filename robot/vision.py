@@ -47,6 +47,7 @@ def run_fixture_detection(
     sequence: int,
     correlation_id: str,
     evidence_base_path: Path = Path("."),
+    occurred_at: datetime | None = None,
 ) -> EventEnvelope:
     _validate_task_mode(task)
     cv2 = _require_cv2_with_aruco()
@@ -82,6 +83,7 @@ def run_fixture_detection(
             sequence=sequence,
             correlation_id=correlation_id,
             raw_ref=raw_ref,
+            occurred_at=occurred_at,
         )
 
     detection = detections[0]
@@ -109,7 +111,7 @@ def run_fixture_detection(
         correlation_id=correlation_id,
         sequence=sequence,
         event_type=EventType.OBJECT_FOUND,
-        occurred_at=datetime.now(timezone.utc),
+        occurred_at=occurred_at or datetime.now(timezone.utc),
         source=VISION_SOURCE,
         mode=ExecutionMode.REAL_VISION,
         payload={
@@ -147,6 +149,7 @@ def _not_found_event(
     sequence: int,
     correlation_id: str,
     raw_ref: EvidenceRef,
+    occurred_at: datetime | None = None,
 ) -> EventEnvelope:
     return EventEnvelope(
         event_id=event_id,
@@ -154,7 +157,7 @@ def _not_found_event(
         correlation_id=correlation_id,
         sequence=sequence,
         event_type=EventType.OBJECT_NOT_FOUND,
-        occurred_at=datetime.now(timezone.utc),
+        occurred_at=occurred_at or datetime.now(timezone.utc),
         source=VISION_SOURCE,
         mode=ExecutionMode.REAL_VISION,
         payload={"object_id": task.object_id, "status": "not_found"},
