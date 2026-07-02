@@ -54,6 +54,49 @@ actuator calls.
 - [ ] arm mechanically safe pose documented
 - [ ] base lifted/off-ground or tracks disabled before any future movement test
 
+## Hardware Inventory v0
+
+Purpose: collect a local, read-only snapshot of connected hardware so follow-up
+PRs can plan SO-ARM 101 and tracked base probes without guessing which devices
+exist on the machine.
+
+Run:
+
+```bash
+python3 scripts/collect_hardware_inventory.py
+```
+
+Outputs are generated under ignored paths:
+
+- `tmp/hardware-inventory/latest.json`
+- `tmp/hardware-inventory/latest.md`
+
+The inventory records:
+
+- timestamp, hostname, current user, groups, platform, and kernel
+- `/dev/video*`, `/dev/tty*`, `/dev/serial/by-id/*`, and `/dev/serial/by-path/*`
+- optional `lsusb`, `lspci`, and `v4l2-ctl --list-devices` output when available
+- availability of `lsusb`, `v4l2-ctl`, `udevadm`, `python3`, and `lspci`
+- Python version, whether `cv2` imports, and whether `cv2.aruco` is available
+- heuristic-only candidate notes for `possible_orbbec_camera`,
+  `possible_so_arm_serial`, and `possible_tracked_base_serial`
+
+The inventory explicitly does not:
+
+- open cameras
+- capture frames
+- open serial ports
+- send serial commands
+- enable torque
+- move the robot
+- control the arm
+- call actuators
+- run the live camera probe or physical demo
+
+Use `latest.md` for human review and `latest.json` for exact device paths and
+command output. Follow-up PRs should treat all candidate labels as possible
+matches only, then add separate probe-only code with explicit safety notes.
+
 ## SO-ARM 101 probe checklist
 
 Probe-only:
