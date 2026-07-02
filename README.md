@@ -59,6 +59,15 @@ Verify the full local hybrid demo chain:
 python3 scripts/smoke_hybrid_demo.py
 ```
 
+Collect a read-only hardware inventory for bring-up planning:
+
+```bash
+python3 scripts/collect_hardware_inventory.py
+```
+
+This writes ignored reports under `tmp/hardware-inventory/` and does not open
+cameras, serial ports, or robot hardware.
+
 Optional live camera probe, fail-closed unless explicitly enabled:
 
 ```bash
