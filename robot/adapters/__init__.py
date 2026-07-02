@@ -32,6 +32,7 @@ from robot.adapters.vision import (
 from robot.adapters.sim_arm import SimArmAdapter
 from robot.adapters.sim_camera import SimCameraAdapter
 from robot.adapters.sim_vision import SimVisionAdapter
+from robot.adapters.so_arm_metadata import MetadataOnlySOArmAdapter
 
 __all__ = [
     "AdapterFailure",
@@ -54,6 +55,7 @@ __all__ = [
     "CameraRole",
     "FrameArtifact",
     "FrameCaptureResult",
+    "MetadataOnlySOArmAdapter",
     "SimArmAdapter",
     "SimCameraAdapter",
     "SimVisionAdapter",

@@ -21,6 +21,8 @@ actuator calls.
 - SO-ARM Readiness Phase 1 is metadata-only and fail-closed by default
 - SO-ARM Readiness Phase 2 is permissions/operator-readiness only and does not
   open serial
+- SO-ARM Readiness Phase 3 defines an adapter contract skeleton with a
+  metadata-only SO-ARM adapter and still does not open serial
 
 ## Not verified yet
 
@@ -238,8 +240,26 @@ Phase 2 explicitly does not:
 - confirm that torque/motor readiness exists
 - confirm that the arm is safe to move
 
-Stage 3: adapter contract skeleton. Define the arm adapter boundary and
-metadata-only SO-ARM adapter shape before any serial/protocol work.
+Stage 3: adapter contract skeleton. The project now has a project-owned
+`ArmAdapter` protocol, `SimArmAdapter`, and `MetadataOnlySOArmAdapter`. Runtime
+selection can inject the metadata-only SO-ARM adapter through
+`AdapterRuntimeConfig(arm_adapter_kind="metadata_only_so_arm")`.
+
+The metadata-only SO-ARM adapter:
+
+- reports `AdapterType.ARM` in `AdapterMode.PROBE`
+- exposes no torque, movement, or read-state capability
+- returns `ArmProbeResult` and `ArmState` project-owned types
+- records path metadata, read/write access checks, and safety flags
+- does not open serial
+- does not read from or write to the serial port
+- does not send bytes
+- does not import or call LeRobot hardware-control APIs
+- does not append events or update dashboard artifacts directly
+
+The orchestrator must keep using adapter interfaces only. It must not import
+LeRobot, pyserial, serial handles, device paths, or hardware-control APIs
+directly.
 
 Stage 4: read-only identity/state query. Only add protocol/library reads if the
 SO-ARM 101 stack supports identity or state queries without writes, torque
@@ -260,6 +280,7 @@ Probe-only:
 - [x] verify fail-closed default readiness wrapper
 - [x] write metadata-only local readiness reports
 - [x] report permissions/operator readiness without opening serial
+- [x] define metadata-only SO-ARM adapter skeleton
 - [ ] identify required runtime/library
 - [ ] read model/config if possible
 - [ ] read joint/state if possible

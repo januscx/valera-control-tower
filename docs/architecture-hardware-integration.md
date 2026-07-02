@@ -178,11 +178,19 @@ with explicit safety gates. The domain task model, dashboard replay contract,
 and event log should not import camera SDKs, OpenCV live capture objects,
 LeRobot objects, serial handles, or device paths.
 
-The next SO-ARM work package should be an arm adapter contract skeleton:
-`ArmAdapter` or `HardwareAdapter` protocol, `SimArmAdapter`, a
-`MetadataOnlySOArmAdapter`, and a capability model. The orchestrator should use
-only the adapter interface. It should not import LeRobot, pyserial, serial
-device paths, or hardware-control libraries directly.
+The SO-ARM adapter contract skeleton is now present:
+
+- `ArmAdapter` protocol and project-owned `ArmCapabilities`, `ArmState`,
+  `ArmProbeResult`, and `ArmCommandResult` types.
+- `SimArmAdapter` for simulation-only mission flow.
+- `MetadataOnlySOArmAdapter` for adapter-shaped SO-ARM path metadata.
+- runtime selection through `AdapterRuntimeConfig` without enabling hardware
+  mode.
+
+The orchestrator should use only the adapter interface. It should not import
+LeRobot, pyserial, serial device paths, or hardware-control libraries directly.
+The metadata-only adapter is still not protocol discovery: it does not open
+serial, send bytes, enable torque, command movement, or read actuator state.
 
 ## SO-ARM 101 Boundary
 
@@ -191,15 +199,15 @@ The SO-ARM 101 integration should start as probe-only.
 Initial allowed behavior:
 
 - detect the controller port
-- identify the controller/runtime
-- report configured arm identity
-- report capabilities where safely available
-- optionally read servo state without enabling motion
+- report configured arm identity through project-owned adapter types
+- report metadata-only capabilities
+- report filesystem/device permission metadata
 
 Initial disallowed behavior:
 
-- serial open during Phase 1/2 readiness
-- serial bytes during Phase 1/2 readiness
+- serial open during Phase 1/2/3 readiness
+- serial bytes during Phase 1/2/3 readiness
+- protocol reads during Phase 1/2/3 readiness
 - torque enable
 - movement commands
 - homing commands
