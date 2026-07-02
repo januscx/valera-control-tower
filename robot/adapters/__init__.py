@@ -15,6 +15,20 @@ from robot.adapters.arm import (
     ArmProbeResult,
     ArmState,
 )
+from robot.adapters.camera import (
+    CameraAdapter,
+    CameraCapabilities,
+    CameraProbeResult,
+    CameraRole,
+    FrameArtifact,
+    FrameCaptureResult,
+)
+from robot.adapters.vision import (
+    BoundingBox,
+    VisionAdapter,
+    VisionDetection,
+    VisionResult,
+)
 
 __all__ = [
     "AdapterFailure",
@@ -30,4 +44,14 @@ __all__ = [
     "ArmJointState",
     "ArmProbeResult",
     "ArmState",
+    "BoundingBox",
+    "CameraAdapter",
+    "CameraCapabilities",
+    "CameraProbeResult",
+    "CameraRole",
+    "FrameArtifact",
+    "FrameCaptureResult",
+    "VisionAdapter",
+    "VisionDetection",
+    "VisionResult",
 ]
