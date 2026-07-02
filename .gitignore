@@ -29,3 +29,6 @@ logs/
 tmp/
 *.log
 .gstack/
+
+# Runtime evidence
+data/evidence/
