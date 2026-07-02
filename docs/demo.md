@@ -76,6 +76,7 @@ For physical demo video preparation, run:
 
 ```bash
 python3 scripts/run_physical_demo.py --enable-live-camera
+.venv/bin/python scripts/check_physical_demo_output.py
 ```
 
 This runner uses real live camera perception for `object.found`, then asks the
@@ -83,6 +84,7 @@ operator to explicitly confirm grasp, release, and delivery steps before those
 events are recorded. It does not move the robot, control the arm directly, or
 call actuators. It writes a replay and dashboard under
 `data/runs/physical-demo-001/` and is not part of the stable hybrid smoke path.
+Use `docs/physical_demo_video.md` as the concise rehearsal and filming guide.
 
 ## Demo video walkthrough
 
