@@ -29,6 +29,9 @@ from robot.adapters.vision import (
     VisionDetection,
     VisionResult,
 )
+from robot.adapters.sim_arm import SimArmAdapter
+from robot.adapters.sim_camera import SimCameraAdapter
+from robot.adapters.sim_vision import SimVisionAdapter
 
 __all__ = [
     "AdapterFailure",
@@ -51,6 +54,9 @@ __all__ = [
     "CameraRole",
     "FrameArtifact",
     "FrameCaptureResult",
+    "SimArmAdapter",
+    "SimCameraAdapter",
+    "SimVisionAdapter",
     "VisionAdapter",
     "VisionDetection",
     "VisionResult",
