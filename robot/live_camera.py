@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,7 @@ def run_live_camera_marker_probe(
     output_root: Path,
     sequence: int = 1,
     correlation_id: str | None = None,
+    occurred_at: datetime | None = None,
 ) -> EventEnvelope:
     if not enabled:
         raise LiveCameraDisabledError(
@@ -91,6 +93,7 @@ def run_live_camera_marker_probe(
         sequence=sequence,
         correlation_id=correlation_id or task_id,
         evidence_base_path=output_root,
+        occurred_at=occurred_at,
         source_adapter=LIVE_CAMERA_SOURCE,
         image_context="live camera frame",
     )

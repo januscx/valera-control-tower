@@ -54,6 +54,7 @@ def test_physical_demo_success_emits_completed_sequence_and_validates(tmp_path):
         enable_live_camera=True,
         output_root=tmp_path,
         confirmation_provider=ListConfirmationProvider([True, True, True, True, True]),
+        run_started_at=datetime(2026, 7, 2, 14, 0, tzinfo=timezone.utc),
         live_probe_runner=_found_probe,
     )
 
@@ -61,8 +62,31 @@ def test_physical_demo_success_emits_completed_sequence_and_validates(tmp_path):
         PHYSICAL_DEMO_SUCCESS_EVENT_SEQUENCE
     )
     assert [event.sequence for event in event_log.events] == list(range(1, 14))
+    assert [event.occurred_at for event in event_log.events] == [
+        datetime(2026, 7, 2, 14, 0, index, tzinfo=timezone.utc) for index in range(13)
+    ]
     assert event_log.events[-1].event_type == EventType.TASK_COMPLETED
     event_log.validate()
+
+
+def test_physical_demo_occurred_at_is_monotonic_by_sequence(tmp_path):
+    event_log = run_physical_demo(
+        task_id="physical-test-monotonic-time",
+        object_id="VALERA-CUBE-001",
+        camera_index=0,
+        enable_live_camera=True,
+        output_root=tmp_path,
+        confirmation_provider=ListConfirmationProvider([True, True, True, True, True]),
+        run_started_at=datetime(2026, 7, 2, 16, 30, tzinfo=timezone.utc),
+        live_probe_runner=_found_probe,
+    )
+
+    occurred_at_values = [event.occurred_at for event in event_log.events]
+    assert occurred_at_values == sorted(occurred_at_values)
+    assert event_log.events[6].event_type == EventType.OBJECT_FOUND
+    assert event_log.events[6].occurred_at == datetime(
+        2026, 7, 2, 16, 30, 6, tzinfo=timezone.utc
+    )
 
 
 def test_physical_demo_object_not_found_fails_before_confirmations(tmp_path):
@@ -238,7 +262,7 @@ def _probe_event(event_type, kwargs, payload=None, error=None):
         correlation_id=kwargs["correlation_id"],
         sequence=kwargs["sequence"],
         event_type=event_type,
-        occurred_at=datetime(2026, 7, 2, 13, 0, 6, tzinfo=timezone.utc),
+        occurred_at=kwargs["occurred_at"],
         source=LIVE_CAMERA_SOURCE,
         mode=ExecutionMode.REAL_VISION,
         payload=payload

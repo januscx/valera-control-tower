@@ -13,7 +13,6 @@ from robot.state_machine import TaskEventLog
 
 
 PHYSICAL_DEMO_SOURCE = "valera.physical_demo"
-PHYSICAL_DEMO_TIMESTAMP_BASE = datetime(2026, 7, 2, 13, 0, tzinfo=timezone.utc)
 
 PHYSICAL_DEMO_SUCCESS_EVENT_SEQUENCE = (
     EventType.TASK_CREATED,
@@ -66,6 +65,7 @@ def run_physical_demo(
     output_root: Path,
     confirmation_provider: ConfirmationProvider | Callable[[str, str], bool],
     correlation_id: str | None = None,
+    run_started_at: datetime | None = None,
     live_probe_runner: ProbeRunner = run_live_camera_marker_probe,
 ) -> TaskEventLog:
     if not enable_live_camera:
@@ -85,6 +85,7 @@ def run_physical_demo(
         ),
     )
     correlation = correlation_id or f"{task.task_id}-physical-demo"
+    timestamp_base = run_started_at or datetime.now(timezone.utc)
     event_log = TaskEventLog(task.task_id)
 
     for event_type in (
@@ -95,7 +96,9 @@ def run_physical_demo(
         EventType.ROUTE_ARRIVED,
         EventType.OBJECT_SEARCH_STARTED,
     ):
-        event_log.append(_event(task, event_type, correlation, event_log.last_sequence + 1))
+        event_log.append(
+            _event(task, event_type, correlation, event_log.last_sequence + 1, timestamp_base)
+        )
 
     detection_event = live_probe_runner(
         task_id=task.task_id,
@@ -105,6 +108,7 @@ def run_physical_demo(
         output_root=Path(output_root),
         sequence=event_log.last_sequence + 1,
         correlation_id=correlation,
+        occurred_at=_occurred_at(timestamp_base, event_log.last_sequence + 1),
     )
     event_log.append(detection_event)
 
@@ -114,6 +118,7 @@ def run_physical_demo(
                 task,
                 correlation,
                 event_log.last_sequence + 1,
+                timestamp_base,
                 "live camera did not find the target object",
                 FailureCode.OBJECT_NOT_FOUND,
             )
@@ -127,6 +132,7 @@ def run_physical_demo(
                 task,
                 correlation,
                 event_log.last_sequence + 1,
+                timestamp_base,
                 f"live camera returned unexpected event type: {detection_event.event_type.value}",
                 FailureCode.INVALID_TASK,
             )
@@ -141,6 +147,7 @@ def run_physical_demo(
                     task,
                     correlation,
                     event_log.last_sequence + 1,
+                    timestamp_base,
                     f"operator cancelled during {confirmation.step_name}",
                     FailureCode.MANUAL_CANCELLED,
                 )
@@ -148,10 +155,24 @@ def run_physical_demo(
             event_log.validate()
             return event_log
         event_log.append(
-            _event(task, confirmation.event_type, correlation, event_log.last_sequence + 1)
+            _event(
+                task,
+                confirmation.event_type,
+                correlation,
+                event_log.last_sequence + 1,
+                timestamp_base,
+            )
         )
 
-    event_log.append(_event(task, EventType.TASK_COMPLETED, correlation, event_log.last_sequence + 1))
+    event_log.append(
+        _event(
+            task,
+            EventType.TASK_COMPLETED,
+            correlation,
+            event_log.last_sequence + 1,
+            timestamp_base,
+        )
+    )
     event_log.validate()
     return event_log
 
@@ -214,6 +235,7 @@ def _event(
     event_type: EventType,
     correlation_id: str,
     sequence: int,
+    timestamp_base: datetime,
 ) -> EventEnvelope:
     return EventEnvelope(
         event_id=f"{correlation_id}-{sequence:03d}",
@@ -221,7 +243,7 @@ def _event(
         correlation_id=correlation_id,
         sequence=sequence,
         event_type=event_type,
-        occurred_at=PHYSICAL_DEMO_TIMESTAMP_BASE + timedelta(seconds=sequence - 1),
+        occurred_at=_occurred_at(timestamp_base, sequence),
         source=PHYSICAL_DEMO_SOURCE,
         mode=ExecutionMode.REAL_VISION,
         payload=_payload_for_event(task, event_type),
@@ -232,6 +254,7 @@ def _failed_event(
     task: Task,
     correlation_id: str,
     sequence: int,
+    timestamp_base: datetime,
     reason: str,
     code: FailureCode,
 ) -> EventEnvelope:
@@ -241,12 +264,18 @@ def _failed_event(
         correlation_id=correlation_id,
         sequence=sequence,
         event_type=EventType.TASK_FAILED,
-        occurred_at=PHYSICAL_DEMO_TIMESTAMP_BASE + timedelta(seconds=sequence - 1),
+        occurred_at=_occurred_at(timestamp_base, sequence),
         source=PHYSICAL_DEMO_SOURCE,
         mode=ExecutionMode.REAL_VISION,
         payload={"object_id": task.object_id, "status": "failed", "reason": reason},
         error=EventError(code=code, message=reason),
     )
+
+
+def _occurred_at(timestamp_base: datetime, sequence: int) -> datetime:
+    if timestamp_base.tzinfo is None:
+        timestamp_base = timestamp_base.replace(tzinfo=timezone.utc)
+    return timestamp_base + timedelta(seconds=sequence - 1)
 
 
 def _payload_for_event(task: Task, event_type: EventType) -> dict[str, object]:
