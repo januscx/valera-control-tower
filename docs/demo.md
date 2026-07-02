@@ -132,6 +132,11 @@ call actuators. It writes a replay and dashboard under
 `data/runs/physical-demo-001/` and is not part of the stable hybrid smoke path.
 Use `docs/physical_demo_video.md` as the concise rehearsal and filming guide.
 
+The physical demo runner validates the camera/evidence/dashboard pipeline plus
+operator-confirmed manipulation and delivery events. It does not validate real
+arm or tracked-base actuation. Real hardware bring-up is tracked separately in
+`docs/hardware_bringup_v0.md`.
+
 ## Demo video walkthrough
 
 1. Run `python3 scripts/run_hybrid_demo.py`.

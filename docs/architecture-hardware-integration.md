@@ -25,6 +25,18 @@ The current project already has:
 The current project does not directly control the tracked base or the arm. That
 boundary stays intact until explicit hardware safety gates exist.
 
+## Bring-up Status
+
+The camera path has reached live probe status: a local operator can opt in to a
+one-frame camera check, and the event/evidence/dashboard pipeline has been
+validated with live camera detection and operator-confirmed physical demo
+events.
+
+The SO-ARM 101 and tracked Valera base remain unprobed. No real arm motion, real
+grasp, real release, base movement, torque enablement, or actuator calls have
+been validated. The next step is readiness probing, not control; see
+`docs/hardware_bringup_v0.md`.
+
 ## Architecture Decision
 
 Use an adapter-first architecture.
