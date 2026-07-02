@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -165,6 +166,7 @@ def test_live_camera_marker_probe_passes_live_source_context(tmp_path, monkeypat
         sequence,
         correlation_id,
         evidence_base_path,
+        occurred_at,
         source_adapter,
         image_context,
     ):
@@ -175,6 +177,7 @@ def test_live_camera_marker_probe_passes_live_source_context(tmp_path, monkeypat
                 "sequence": sequence,
                 "correlation_id": correlation_id,
                 "evidence_base_path": evidence_base_path,
+                "occurred_at": occurred_at,
                 "source_adapter": source_adapter,
                 "image_context": image_context,
             }
@@ -184,6 +187,7 @@ def test_live_camera_marker_probe_passes_live_source_context(tmp_path, monkeypat
     monkeypatch.setattr(live_camera, "capture_live_camera_frame", fake_capture_live_camera_frame)
     monkeypatch.setattr(live_camera, "run_fixture_detection", fake_run_fixture_detection)
 
+    occurred_at = datetime(2026, 7, 2, 15, 0, tzinfo=timezone.utc)
     event = live_camera.run_live_camera_marker_probe(
         task_id="live-probe-task-004",
         object_id="VALERA-CUBE-001",
@@ -192,6 +196,7 @@ def test_live_camera_marker_probe_passes_live_source_context(tmp_path, monkeypat
         output_root=tmp_path,
         sequence=12,
         correlation_id="corr-live-probe-004",
+        occurred_at=occurred_at,
     )
 
     assert event is not None
@@ -200,6 +205,7 @@ def test_live_camera_marker_probe_passes_live_source_context(tmp_path, monkeypat
     assert captured["sequence"] == 12
     assert captured["correlation_id"] == "corr-live-probe-004"
     assert captured["evidence_base_path"] == tmp_path
+    assert captured["occurred_at"] == occurred_at
     assert captured["source_adapter"] == LIVE_CAMERA_SOURCE
     assert captured["image_context"] == "live camera frame"
 

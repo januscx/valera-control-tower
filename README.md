@@ -52,6 +52,17 @@ python3 scripts/run_live_camera_probe.py --enable-live-camera
 The live probe captures one frame only and does not move the robot or control the
 arm. It is not part of the stable hybrid smoke path.
 
+Physical demo runner for video preparation, fail-closed unless explicitly
+enabled:
+
+```bash
+python3 scripts/run_physical_demo.py --enable-live-camera
+```
+
+The physical demo uses real live camera vision for object detection, then records
+operator-confirmed manipulation and delivery steps. It does not move the robot or
+control the arm directly, and it is not part of the stable hybrid smoke path.
+
 Open the generated dashboard:
 
 ```bash
