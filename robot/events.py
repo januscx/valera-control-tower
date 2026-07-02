@@ -90,3 +90,24 @@ class EventEnvelope:
 
         if self.error is not None and not isinstance(self.error, EventError):
             self.error = EventError(**self.error)
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "event_id": self.event_id,
+            "task_id": self.task_id,
+            "correlation_id": self.correlation_id,
+            "sequence": self.sequence,
+            "event_type": self.event_type.value,
+            "occurred_at": self.occurred_at.isoformat(),
+            "source": self.source,
+            "mode": self.mode.value,
+            "schema_version": self.schema_version,
+            "payload": self.payload,
+            "evidence_refs": self.evidence_refs,
+        }
+        if self.error is not None:
+            data["error"] = {
+                "code": self.error.code.value,
+                "message": self.error.message,
+            }
+        return data
