@@ -39,6 +39,9 @@ open data/runs/hybrid-fixture-task-001/dashboard.html
 
 On Linux without `open`, open the same file directly in a browser.
 
+For structured image evidence refs, the dashboard shows local evidence links and
+inline previews when the referenced files are under `data/evidence/`.
+
 ## Demo video walkthrough
 
 1. Run `python3 scripts/run_hybrid_demo.py`.

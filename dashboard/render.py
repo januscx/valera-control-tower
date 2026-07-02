@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from html import escape
 import json
+import os
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 
@@ -16,7 +18,7 @@ class DashboardSummary:
 def render_dashboard(events: list[dict], output_path: Path) -> DashboardSummary:
     summary = summarize_events(events)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(_render_html(events, summary), encoding="utf-8")
+    output_path.write_text(_render_html(events, summary, output_path), encoding="utf-8")
     return summary
 
 
@@ -50,7 +52,7 @@ def _final_status(last_event: dict) -> str:
     return "in progress / unknown"
 
 
-def _render_html(events: list[dict], summary: DashboardSummary) -> str:
+def _render_html(events: list[dict], summary: DashboardSummary, output_path: Path) -> str:
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -85,6 +87,33 @@ def _render_html(events: list[dict], summary: DashboardSummary) -> str:
       overflow-x: auto;
       padding: 0.75rem;
       white-space: pre-wrap;
+    }}
+    article {{
+      border-top: 1px solid #d8dee4;
+      padding: 1rem 0;
+    }}
+    article:first-of-type {{
+      border-top: 0;
+    }}
+    .evidence-list {{
+      display: grid;
+      gap: 0.75rem;
+      list-style: none;
+      padding-left: 0;
+    }}
+    .evidence-list li {{
+      border: 1px solid #d8dee4;
+      padding: 0.75rem;
+    }}
+    .evidence-link {{
+      margin-top: 0.5rem;
+    }}
+    .evidence-preview {{
+      border: 1px solid #c8d0d6;
+      display: block;
+      height: auto;
+      margin-top: 0.5rem;
+      max-width: min(420px, 100%);
     }}
     .summary {{
       display: grid;
@@ -132,7 +161,7 @@ def _render_html(events: list[dict], summary: DashboardSummary) -> str:
   </section>
   <section>
     <h2>Event Details</h2>
-{_detail_sections(events)}
+{_detail_sections(events, output_path)}
   </section>
 </body>
 </html>
@@ -153,36 +182,38 @@ def _timeline_rows(events: list[dict]) -> str:
     )
 
 
-def _detail_sections(events: list[dict]) -> str:
-    return "\n".join(_detail_section(event) for event in events)
+def _detail_sections(events: list[dict], output_path: Path) -> str:
+    return "\n".join(_detail_section(event, output_path) for event in events)
 
 
-def _detail_section(event: dict) -> str:
+def _detail_section(event: dict, output_path: Path) -> str:
     sequence = _html(event.get("sequence", ""))
     event_type = _html(event.get("event_type", ""))
     return f"""    <article>
       <h3>{sequence}. {event_type}</h3>
       <h4>Payload summary</h4>
       <pre>{_html(_json_summary(event.get("payload", {})))}</pre>
-{_evidence_section(event.get("evidence_refs", []))}
+{_evidence_section(event.get("evidence_refs", []), output_path)}
 {_error_section(event.get("error"))}
     </article>"""
 
 
-def _evidence_section(evidence_refs: Any) -> str:
+def _evidence_section(evidence_refs: Any, output_path: Path) -> str:
     if not evidence_refs:
         return "      <p>No evidence refs.</p>"
     if not isinstance(evidence_refs, list):
         evidence_refs = [evidence_refs]
 
-    items = "\n".join(f"        <li>{_evidence_ref_summary(ref)}</li>" for ref in evidence_refs)
+    items = "\n".join(
+        f"        <li>{_evidence_ref_summary(ref, output_path)}</li>" for ref in evidence_refs
+    )
     return f"""      <h4>Evidence refs</h4>
-      <ul>
+      <ul class="evidence-list">
 {items}
       </ul>"""
 
 
-def _evidence_ref_summary(ref: Any) -> str:
+def _evidence_ref_summary(ref: Any, output_path: Path) -> str:
     if isinstance(ref, dict):
         fields = [
             ("evidence_id", ref.get("evidence_id")),
@@ -193,8 +224,51 @@ def _evidence_ref_summary(ref: Any) -> str:
             ("checksum", ref.get("checksum")),
         ]
         present_fields = [f"{label}: {_html(value)}" for label, value in fields if value is not None]
-        return "; ".join(present_fields)
+        return "; ".join(present_fields) + _evidence_link_and_preview(ref, output_path)
     return f"legacy_ref: {_html(ref)}"
+
+
+def _evidence_link_and_preview(ref: dict, output_path: Path) -> str:
+    relative_path = ref.get("relative_path")
+    if not isinstance(relative_path, str) or not _is_safe_evidence_path(relative_path):
+        return ""
+
+    href = _relative_href_from_dashboard(relative_path, output_path)
+    html = f'\n          <div class="evidence-link"><a href="{_html(href)}">Open evidence file</a></div>'
+    if ref.get("media_type") == "image/png":
+        evidence_id = ref.get("evidence_id", "evidence")
+        html += (
+            f'\n          <img src="{_html(href)}" '
+            f'alt="Evidence preview for {_html(evidence_id)}" class="evidence-preview">'
+        )
+    return html
+
+
+def _is_safe_evidence_path(relative_path: str) -> bool:
+    path = PurePosixPath(relative_path)
+    return (
+        not path.is_absolute()
+        and ".." not in path.parts
+        and path.is_relative_to(PurePosixPath("data/evidence"))
+    )
+
+
+def _relative_href_from_dashboard(relative_path: str, output_path: Path) -> str:
+    output_parent = output_path.parent
+    root_path = _dashboard_root(output_path)
+    evidence_path = root_path.joinpath(*PurePosixPath(relative_path).parts)
+    return os.path.relpath(evidence_path, start=output_parent).replace(os.sep, "/")
+
+
+def _dashboard_root(output_path: Path) -> Path:
+    parts = output_path.parts[:-1]
+    if "data" not in parts:
+        return output_path.parent
+
+    data_index = len(parts) - 1 - list(reversed(parts)).index("data")
+    if data_index == 0:
+        return Path(".")
+    return Path(*parts[:data_index])
 
 
 def _error_section(error: Any) -> str:

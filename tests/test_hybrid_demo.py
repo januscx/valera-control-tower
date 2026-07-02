@@ -101,3 +101,17 @@ def test_hybrid_replay_serializes_and_dashboard_renders(tmp_path: Path):
     assert object_found["evidence_refs"][0]["relative_path"].startswith(
         "data/evidence/hybrid-task-001/"
     )
+
+
+def test_hybrid_replay_dashboard_includes_evidence_links_and_previews(tmp_path: Path):
+    event_log = run_sample_hybrid(tmp_path)
+    replay_path = tmp_path / "data" / "runs" / "hybrid-task-001" / "replay.json"
+    dashboard_path = tmp_path / "data" / "runs" / "hybrid-task-001" / "dashboard.html"
+
+    write_hybrid_replay(event_log, replay_path)
+    render_dashboard_from_replay(replay_path, dashboard_path)
+
+    html = dashboard_path.read_text(encoding="utf-8")
+    assert 'href="../../evidence/hybrid-task-001/' in html
+    assert 'src="../../evidence/hybrid-task-001/' in html
+    assert 'class="evidence-preview"' in html

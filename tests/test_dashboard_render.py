@@ -106,6 +106,75 @@ def test_dashboard_renders_structured_and_legacy_evidence_refs(tmp_path: Path):
     assert "sha256:abc123" in html
 
 
+def test_dashboard_renders_safe_evidence_image_ref_as_link_and_preview(tmp_path: Path):
+    output_path = tmp_path / "data" / "runs" / "task-123" / "dashboard.html"
+
+    render_dashboard(sample_events(), output_path)
+
+    html = output_path.read_text(encoding="utf-8")
+    expected_href = "../../evidence/task-123/evidence-001-detected.png"
+    assert f'<a href="{expected_href}">' in html
+    assert (
+        f'<img src="{expected_href}" '
+        'alt="Evidence preview for evidence-001" class="evidence-preview">'
+    ) in html
+
+
+def test_dashboard_does_not_link_or_preview_unsafe_absolute_evidence_path(tmp_path: Path):
+    output_path = tmp_path / "index.html"
+    events = sample_events()
+    events[1]["evidence_refs"][0]["relative_path"] = "/data/evidence/task-123/absolute.png"
+
+    render_dashboard(events, output_path)
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "/data/evidence/task-123/absolute.png" in html
+    assert 'href="/data/evidence/task-123/absolute.png"' not in html
+    assert 'src="/data/evidence/task-123/absolute.png"' not in html
+
+
+def test_dashboard_does_not_link_or_preview_parent_traversal_evidence_path(tmp_path: Path):
+    output_path = tmp_path / "index.html"
+    events = sample_events()
+    events[1]["evidence_refs"][0]["relative_path"] = "data/evidence/../secret.png"
+
+    render_dashboard(events, output_path)
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "data/evidence/../secret.png" in html
+    assert 'href="data/evidence/../secret.png"' not in html
+    assert 'src="data/evidence/../secret.png"' not in html
+
+
+def test_dashboard_does_not_preview_non_image_evidence_ref(tmp_path: Path):
+    output_path = tmp_path / "index.html"
+    events = sample_events()
+    events[1]["evidence_refs"][0]["media_type"] = "application/json"
+
+    render_dashboard(events, output_path)
+
+    html = output_path.read_text(encoding="utf-8")
+    assert 'href="data/evidence/task-123/evidence-001-detected.png"' in html
+    assert "<img" not in html
+
+
+def test_dashboard_escapes_html_in_evidence_ref_fields(tmp_path: Path):
+    output_path = tmp_path / "index.html"
+    events = sample_events()
+    events[1]["evidence_refs"][0]["evidence_id"] = "<script>alert('id')</script>"
+    events[1]["evidence_refs"][0]["relative_path"] = (
+        "data/evidence/task-123/<script>alert('path')</script>.png"
+    )
+
+    render_dashboard(events, output_path)
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "<script>alert('id')</script>" not in html
+    assert "<script>alert('path')</script>" not in html
+    assert "&lt;script&gt;alert(&#x27;id&#x27;)&lt;/script&gt;" in html
+    assert "&lt;script&gt;alert(&#x27;path&#x27;)&lt;/script&gt;" in html
+
+
 def test_dashboard_renders_error_details_for_not_found_event(tmp_path: Path):
     output_path = tmp_path / "index.html"
 
