@@ -48,6 +48,8 @@ def run_fixture_detection(
     correlation_id: str,
     evidence_base_path: Path = Path("."),
     occurred_at: datetime | None = None,
+    source_adapter: str = VISION_SOURCE,
+    image_context: str = "fixture image",
 ) -> EventEnvelope:
     _validate_task_mode(task)
     cv2 = _require_cv2_with_aruco()
@@ -69,7 +71,7 @@ def run_fixture_detection(
         variant="raw",
         media_type="image/png",
         capture_mode=ExecutionMode.REAL_VISION.value,
-        source_adapter=VISION_SOURCE,
+        source_adapter=source_adapter,
         linked_event_id=event_id,
     )
     _write_image(cv2, raw_ref.local_path(evidence_base_path), image)
@@ -84,6 +86,8 @@ def run_fixture_detection(
             correlation_id=correlation_id,
             raw_ref=raw_ref,
             occurred_at=occurred_at,
+            source_adapter=source_adapter,
+            image_context=image_context,
         )
 
     detection = detections[0]
@@ -99,7 +103,7 @@ def run_fixture_detection(
         variant="annotated",
         media_type="image/png",
         capture_mode=ExecutionMode.REAL_VISION.value,
-        source_adapter=VISION_SOURCE,
+        source_adapter=source_adapter,
         linked_event_id=event_id,
     )
     _write_image(cv2, annotated_ref.local_path(evidence_base_path), annotated)
@@ -112,7 +116,7 @@ def run_fixture_detection(
         sequence=sequence,
         event_type=EventType.OBJECT_FOUND,
         occurred_at=occurred_at or datetime.now(timezone.utc),
-        source=VISION_SOURCE,
+        source=source_adapter,
         mode=ExecutionMode.REAL_VISION,
         payload={
             "object_id": task.object_id,
@@ -150,6 +154,8 @@ def _not_found_event(
     correlation_id: str,
     raw_ref: EvidenceRef,
     occurred_at: datetime | None = None,
+    source_adapter: str = VISION_SOURCE,
+    image_context: str = "fixture image",
 ) -> EventEnvelope:
     return EventEnvelope(
         event_id=event_id,
@@ -158,13 +164,13 @@ def _not_found_event(
         sequence=sequence,
         event_type=EventType.OBJECT_NOT_FOUND,
         occurred_at=occurred_at or datetime.now(timezone.utc),
-        source=VISION_SOURCE,
+        source=source_adapter,
         mode=ExecutionMode.REAL_VISION,
         payload={"object_id": task.object_id, "status": "not_found"},
         evidence_refs=[raw_ref],
         error=EventError(
             code=FailureCode.OBJECT_NOT_FOUND,
-            message="no ArUco marker detected in fixture image",
+            message=f"no ArUco marker detected in {image_context}",
         ),
     )
 

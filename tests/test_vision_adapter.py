@@ -41,6 +41,7 @@ def test_marker_fixture_produces_object_found(tmp_path):
     assert event.event_type == EventType.OBJECT_FOUND
     assert event.mode == ExecutionMode.REAL_VISION
     assert event.source == VISION_SOURCE
+    assert {ref.source_adapter for ref in event.evidence_refs} == {VISION_SOURCE}
     assert event.payload["object_id"] == "VALERA-CUBE-001"
     assert event.payload["marker_id"] == 7
     assert event.payload["detection_score"] == 1.0
@@ -66,9 +67,12 @@ def test_no_marker_fixture_produces_object_not_found(tmp_path):
 
     assert event.event_type == EventType.OBJECT_NOT_FOUND
     assert event.mode == ExecutionMode.REAL_VISION
+    assert event.source == VISION_SOURCE
     assert event.error.code == FailureCode.OBJECT_NOT_FOUND
+    assert event.error.message == "no ArUco marker detected in fixture image"
     assert event.payload == {"object_id": "VALERA-CUBE-001", "status": "not_found"}
     assert len(event.evidence_refs) == 1
+    assert event.evidence_refs[0].source_adapter == VISION_SOURCE
 
 
 def test_structured_evidence_refs_serialize_through_event_envelope(tmp_path):
