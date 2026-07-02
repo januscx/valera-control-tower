@@ -38,9 +38,11 @@ been validated. The next step is readiness probing, not control; see
 `docs/hardware_bringup_v0.md`.
 
 A read-only inventory run on `valera` confirms the Orbbec Astra Pro camera path
-through `/dev/video0`, `/dev/video1`, and `/dev/media0`. A CH340 serial bridge
-is present as `/dev/ttyUSB0`, but its role is unconfirmed; the SO-ARM 101 and
-tracked base remain unidentified and unprobed.
+through `/dev/video0`, `/dev/video1`, and `/dev/media0`. The CH340 serial bridge
+at `/dev/ttyUSB0` is identified as the SO-ARM 101 motor controller connection by
+operator-confirmed kit provenance, not automatic protocol validation. No serial
+commands have been sent, no torque or motion has been enabled, and the tracked
+base remains unidentified and unprobed.
 
 ## Architecture Decision
 
