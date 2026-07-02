@@ -1,0 +1,220 @@
+from dataclasses import dataclass
+from html import escape
+import json
+from pathlib import Path
+from typing import Any
+
+
+@dataclass(frozen=True)
+class DashboardSummary:
+    task_id: str
+    correlation_id: str
+    final_status: str
+    event_count: int
+
+
+def render_dashboard(events: list[dict], output_path: Path) -> DashboardSummary:
+    summary = summarize_events(events)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(_render_html(events, summary), encoding="utf-8")
+    return summary
+
+
+def render_dashboard_from_replay(replay_path: Path, output_path: Path) -> DashboardSummary:
+    events = json.loads(replay_path.read_text(encoding="utf-8"))
+    if not isinstance(events, list):
+        raise ValueError("replay JSON must contain a list of events")
+    return render_dashboard(events, output_path)
+
+
+def summarize_events(events: list[dict]) -> DashboardSummary:
+    first_event = events[0] if events else {}
+    last_event = events[-1] if events else {}
+    return DashboardSummary(
+        task_id=str(first_event.get("task_id", "unknown")),
+        correlation_id=str(first_event.get("correlation_id", "unknown")),
+        final_status=_final_status(last_event),
+        event_count=len(events),
+    )
+
+
+def _final_status(last_event: dict) -> str:
+    event_type = last_event.get("event_type")
+    payload = last_event.get("payload", {})
+    payload_status = payload.get("status") if isinstance(payload, dict) else None
+
+    if event_type == "task.completed" or payload_status == "completed":
+        return "completed"
+    if event_type == "task.failed" or "error" in last_event:
+        return "failed"
+    return "in progress / unknown"
+
+
+def _render_html(events: list[dict], summary: DashboardSummary) -> str:
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Valera Mission Dashboard - {_html(summary.task_id)}</title>
+  <style>
+    body {{
+      color: #172026;
+      font-family: Arial, sans-serif;
+      line-height: 1.45;
+      margin: 2rem;
+    }}
+    header, section {{
+      margin-bottom: 2rem;
+    }}
+    table {{
+      border-collapse: collapse;
+      width: 100%;
+    }}
+    th, td {{
+      border: 1px solid #c8d0d6;
+      padding: 0.5rem;
+      text-align: left;
+      vertical-align: top;
+    }}
+    th {{
+      background: #edf2f4;
+    }}
+    pre {{
+      background: #f6f8fa;
+      border: 1px solid #d8dee4;
+      overflow-x: auto;
+      padding: 0.75rem;
+      white-space: pre-wrap;
+    }}
+    .summary {{
+      display: grid;
+      gap: 0.75rem;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }}
+    .summary div {{
+      border: 1px solid #c8d0d6;
+      padding: 0.75rem;
+    }}
+    .label {{
+      color: #52616b;
+      display: block;
+      font-size: 0.85rem;
+    }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Valera Mission Dashboard</h1>
+    <h2>Task {_html(summary.task_id)}</h2>
+    <div class="summary">
+      <div><span class="label">Final status</span>{_html(summary.final_status)}</div>
+      <div><span class="label">Correlation id</span>{_html(summary.correlation_id)}</div>
+      <div><span class="label">Event count</span>{summary.event_count}</div>
+    </div>
+  </header>
+  <section>
+    <h2>Event Timeline</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Sequence</th>
+          <th>Occurred at</th>
+          <th>Event type</th>
+          <th>Source</th>
+          <th>Mode</th>
+          <th>Payload status</th>
+        </tr>
+      </thead>
+      <tbody>
+{_timeline_rows(events)}
+      </tbody>
+    </table>
+  </section>
+  <section>
+    <h2>Event Details</h2>
+{_detail_sections(events)}
+  </section>
+</body>
+</html>
+"""
+
+
+def _timeline_rows(events: list[dict]) -> str:
+    return "\n".join(
+        "        <tr>"
+        f"<td>{_html(event.get('sequence', ''))}</td>"
+        f"<td>{_html(event.get('occurred_at', ''))}</td>"
+        f"<td>{_html(event.get('event_type', ''))}</td>"
+        f"<td>{_html(event.get('source', ''))}</td>"
+        f"<td>{_html(event.get('mode', ''))}</td>"
+        f"<td>{_html(_payload_status(event))}</td>"
+        "</tr>"
+        for event in events
+    )
+
+
+def _detail_sections(events: list[dict]) -> str:
+    return "\n".join(_detail_section(event) for event in events)
+
+
+def _detail_section(event: dict) -> str:
+    sequence = _html(event.get("sequence", ""))
+    event_type = _html(event.get("event_type", ""))
+    return f"""    <article>
+      <h3>{sequence}. {event_type}</h3>
+      <h4>Payload summary</h4>
+      <pre>{_html(_json_summary(event.get("payload", {})))}</pre>
+{_evidence_section(event.get("evidence_refs", []))}
+{_error_section(event.get("error"))}
+    </article>"""
+
+
+def _evidence_section(evidence_refs: Any) -> str:
+    if not evidence_refs:
+        return "      <p>No evidence refs.</p>"
+    if not isinstance(evidence_refs, list):
+        evidence_refs = [evidence_refs]
+
+    items = "\n".join(f"        <li>{_evidence_ref_summary(ref)}</li>" for ref in evidence_refs)
+    return f"""      <h4>Evidence refs</h4>
+      <ul>
+{items}
+      </ul>"""
+
+
+def _evidence_ref_summary(ref: Any) -> str:
+    if isinstance(ref, dict):
+        fields = [
+            ("evidence_id", ref.get("evidence_id")),
+            ("relative_path", ref.get("relative_path")),
+            ("media_type", ref.get("media_type")),
+            ("capture_mode", ref.get("capture_mode")),
+            ("source_adapter", ref.get("source_adapter")),
+            ("checksum", ref.get("checksum")),
+        ]
+        present_fields = [f"{label}: {_html(value)}" for label, value in fields if value is not None]
+        return "; ".join(present_fields)
+    return f"legacy_ref: {_html(ref)}"
+
+
+def _error_section(error: Any) -> str:
+    if not isinstance(error, dict):
+        return ""
+    return f"""      <h4>Error details</h4>
+      <p>error.code: {_html(error.get("code", ""))}</p>
+      <p>error.message: {_html(error.get("message", ""))}</p>"""
+
+
+def _payload_status(event: dict) -> str:
+    payload = event.get("payload", {})
+    if isinstance(payload, dict):
+        return str(payload.get("status", ""))
+    return ""
+
+
+def _json_summary(value: Any) -> str:
+    return json.dumps(value, indent=2, sort_keys=True)
+
+
+def _html(value: Any) -> str:
+    return escape(str(value), quote=True)
