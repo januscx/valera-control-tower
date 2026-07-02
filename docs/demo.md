@@ -18,6 +18,13 @@ From the repository root:
 python3 scripts/run_hybrid_demo.py
 ```
 
+To verify the full local demo chain, including replay, dashboard, evidence
+files, and previews:
+
+```bash
+python3 scripts/smoke_hybrid_demo.py
+```
+
 ## Expected output
 
 The command should print:

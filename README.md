@@ -36,6 +36,12 @@ Run the hybrid evidence demo:
 python3 scripts/run_hybrid_demo.py
 ```
 
+Verify the full local hybrid demo chain:
+
+```bash
+python3 scripts/smoke_hybrid_demo.py
+```
+
 Open the generated dashboard:
 
 ```bash
