@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  stable-demo:
+    name: Stable local demo checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install development dependencies
+        run: python3 -m pip install -r requirements-dev.txt
+
+      - name: Run stable local checks
+        run: |
+          set -euo pipefail
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest
+          python3 scripts/validate_sample_task.py
+          python3 scripts/run_demo.py
+          python3 scripts/validate_evidence_store.py
+          python3 scripts/run_vision_fixture.py
+          python3 scripts/render_dashboard.py
+          python3 scripts/run_hybrid_demo.py
+          python3 scripts/smoke_hybrid_demo.py
+          python3 scripts/run_adapter_sim_demo.py
+          git diff --check
+          status="$(git status --short)"
+          printf '%s\n' "$status"
+          if [ -n "$status" ]; then
+            echo "Unexpected uncommitted or unignored generated files after CI checks."
+            exit 1
+          fi

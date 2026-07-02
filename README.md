@@ -30,6 +30,14 @@ Run the test suite:
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest
 ```
 
+## CI boundary
+
+GitHub Actions validates the stable local simulation, fixture vision, dashboard,
+hybrid demo, and adapter simulation chain. CI intentionally does not open
+cameras, run the live camera probe with `--enable-live-camera`, run the physical
+demo, move the robot, control the arm, or call actuators. Live camera and
+physical demo runs remain local operator actions only.
+
 Run the hybrid evidence demo:
 
 ```bash

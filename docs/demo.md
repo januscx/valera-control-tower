@@ -41,6 +41,13 @@ files, and previews:
 python3 scripts/smoke_hybrid_demo.py
 ```
 
+## CI boundary
+
+CI runs the stable local simulation, fixture vision, dashboard, hybrid demo, and
+adapter simulation commands. It does not open cameras and does not run the live
+camera probe or physical demo with hardware opt-in flags. Those remain local
+operator actions only.
+
 ## Expected output
 
 The command should print:
