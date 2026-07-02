@@ -18,10 +18,11 @@ actuator calls.
 - event/evidence/dashboard pipeline works
 - physical demo runner completed with operator confirmations
 - no real arm/base movement has been validated
+- SO-ARM Readiness Phase 1 is metadata-only and fail-closed by default
 
 ## Not verified yet
 
-- SO-ARM 101 connection
+- SO-ARM 101 protocol/library identity
 - SO-ARM 101 read-only state
 - SO-ARM 101 safe torque-disabled mode
 - tracked base connection
@@ -138,12 +139,55 @@ Stage 0: docs/inventory identity. Record `/dev/ttyUSB0` and
 `/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0` as the SO-ARM 101 motor
 controller path based on operator-confirmed kit provenance.
 
-Stage 1: fail-closed probe wrapper. Add a command that reports the known path
-and refuses serial access unless the operator provides an explicit opt-in flag.
+Stage 1: fail-closed metadata readiness. `scripts/probe_so_arm_readiness.py`
+reports the known path, refuses readiness by default, and only performs
+filesystem metadata checks after an explicit `--enable-metadata-check` opt-in.
+The compatibility flag `--enable-serial-open` is retained, but in Phase 1 it is
+metadata-only and does not open serial.
+
+Phase 1 writes local ignored reports under:
+
+- `tmp/so-arm-readiness/latest.json`
+- `tmp/so-arm-readiness/latest.md`
+
+The report records timestamp, hostname, user, groups, the known controller path,
+resolved target, exists/readable/writable metadata, and the identity basis:
+operator-confirmed SO-101 motor kit provenance.
+
+Phase 1 safety flags are all false:
+
+- `serial_opened`
+- `serial_commands_sent`
+- `torque_enabled`
+- `movement_commanded`
+- `actuator_calls`
+
+The Phase 1 note is explicit: no serial port is opened and no bytes are sent.
 
 Stage 2: explicit opt-in serial open. Any serial-open action must be
-operator-triggered and must stop after checking path existence and permissions
+operator-triggered, must follow protocol/library discovery, and must not happen
 until a safe read-only protocol is defined.
+
+### Phase 2 permissions-only readiness
+
+The next SO-ARM work package should stay permissions-only and operator-facing.
+It should not open the serial port, send commands, enable torque, command
+movement, call actuators, run LeRobot control APIs, run a live camera, or run a
+physical demo.
+
+Allowed Phase 2 checks:
+
+- check whether the operator is in the Linux group that owns serial access, such
+  as `dialout`
+- inspect udev/device permissions for the CH340 path and resolved `/dev/ttyUSB0`
+  target
+- document a safe operator procedure for fixing access, such as group membership
+  or udev rules
+- re-run Phase 1 metadata reports after permission changes
+
+Phase 2 completion should prove only that the operator can prepare the machine
+for a future protocol/library discovery step. It still must not prove or imply
+that the arm is safe to move.
 
 Stage 3: read-only identity/state query. Only add protocol/library reads if the
 SO-ARM 101 stack supports identity or state queries without writes, torque
@@ -161,6 +205,8 @@ must be planned in a separate PR with explicit safety gates.
 Probe-only:
 
 - [x] identify connection/interface by operator-confirmed kit provenance
+- [x] verify fail-closed default readiness wrapper
+- [x] write metadata-only local readiness reports
 - [ ] identify required runtime/library
 - [ ] read model/config if possible
 - [ ] read joint/state if possible
@@ -181,6 +227,7 @@ Probe-only:
 
 - hardware inventory documented
 - SO-ARM connection path identified
+- SO-ARM Phase 1 metadata readiness report generated
 - base connection path identified
 - no movement performed
 - no actuator calls performed
@@ -189,7 +236,8 @@ Probe-only:
 ## Follow-up PR slices
 
 - PR A: hardware inventory script/report, read-only
-- PR B: SO-ARM probe adapter, no torque/motion
+- PR B: SO-ARM protocol/library discovery, no serial read/write until a safe
+  read-only plan is defined
 - PR C: tracked base probe adapter, no movement
 - PR D: hardware safety gate model
 - PR E: first controlled motion test plan, docs only, not execution

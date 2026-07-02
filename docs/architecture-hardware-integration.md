@@ -44,6 +44,14 @@ operator-confirmed kit provenance, not automatic protocol validation. No serial
 commands have been sent, no torque or motion has been enabled, and the tracked
 base remains unidentified and unprobed.
 
+SO-ARM Readiness Phase 1 adds a fail-closed metadata tool for the known
+controller path. The default command exits with code `2`; the explicit
+`--enable-metadata-check` path checks filesystem metadata and writes ignored
+reports under `tmp/so-arm-readiness/`. The legacy `--enable-serial-open` flag is
+kept as a compatibility alias, but it is metadata-only in Phase 1. Neither path
+opens serial, sends bytes, enables torque, commands movement, calls actuators,
+runs the live camera, or performs a physical demo.
+
 ## Architecture Decision
 
 Use an adapter-first architecture.
@@ -66,6 +74,12 @@ Task / Mission Orchestrator
 
 The event log records facts after they happen. It must not be used as a command
 queue.
+
+Hardware probes follow the same boundary. A probe may produce a structured
+result for the orchestrator or a local operator report, but it must not append
+events directly, update dashboard artifacts directly, or bypass safety gates.
+For SO-ARM Readiness Phase 1, the probe is not an adapter control path at all:
+it is a metadata report over filesystem paths and permissions.
 
 ## Commands, Results, And Events
 
@@ -170,6 +184,8 @@ Initial allowed behavior:
 
 Initial disallowed behavior:
 
+- serial open during Phase 1 readiness
+- serial bytes during Phase 1 readiness
 - torque enable
 - movement commands
 - homing commands
@@ -252,6 +268,18 @@ The first SO-ARM 101 hardware stage should require flags equivalent to:
 --hardware
 --probe-only
 ```
+
+Before that stage, Phase 1 only allows:
+
+```text
+scripts/probe_so_arm_readiness.py --enable-metadata-check
+```
+
+This records metadata for
+`/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0`, which resolves to the CH340
+path `/dev/ttyUSB0` on Valera. The identity basis is operator-confirmed SO-101
+motor kit provenance. The next phase is protocol/library discovery before any
+read/write serial probe.
 
 The first motion stage should require flags equivalent to:
 
