@@ -1,5 +1,6 @@
 import json
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -86,6 +87,7 @@ def test_help_text_makes_metadata_only_boundary_obvious():
     assert "metadata only" in result.stdout
     assert "never opens serial and never sends bytes" in normalized_stdout
     assert "does not prove the arm is safe to move" in normalized_stdout
+    assert "--enable-permission-check" in result.stdout
 
 
 def test_missing_opt_in_fake_path_returns_not_ready(tmp_path):
@@ -165,6 +167,183 @@ def test_metadata_check_writes_json_and_markdown_reports_to_output_dir(tmp_path)
     assert "- actuator_calls: false" in markdown
 
 
+def test_permission_check_report_recommends_group_membership_when_user_lacks_device_group(
+    tmp_path, monkeypatch
+):
+    fake_device = tmp_path / "ttyUSB0"
+    fake_device.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(probe.getpass, "getuser", lambda: "janus-test")
+    monkeypatch.setattr(probe.os, "getuid", lambda: 1000)
+    monkeypatch.setattr(probe.os, "getgid", lambda: 1000)
+    monkeypatch.setattr(probe.os, "getgroups", lambda: [1000])
+    monkeypatch.setattr(
+        probe.pwd,
+        "getpwuid",
+        lambda uid: type("User", (), {"pw_name": "root" if uid == 0 else "janus-test"})(),
+    )
+    monkeypatch.setattr(
+        probe.grp,
+        "getgrgid",
+        lambda gid: type("Group", (), {"gr_name": "dialout" if gid == 20 else "janus-test"})(),
+    )
+
+    readiness = probe.inspect_permission_readiness(
+        str(fake_device),
+        access_fn=lambda device, mode: False,
+        stat_fn=lambda path: os.stat_result(
+            (
+                stat.S_IFCHR | 0o660,
+                1,
+                1,
+                1,
+                0,
+                20,
+                0,
+                0,
+                0,
+                0,
+            )
+        ),
+    )
+    status = probe.determine_phase_2_status(readiness)
+    report = probe.build_report(readiness.path_metadata, status, permission_readiness=readiness)
+
+    assert status.status == "permission_check_operator_action_required"
+    assert status.exit_code == 0
+    assert readiness.owner_name == "root"
+    assert readiness.group_name == "dialout"
+    assert readiness.user_in_device_group is False
+    assert readiness.operator_action_required is True
+    assert readiness.recommended_operator_commands == ['sudo usermod -aG dialout "$USER"']
+    assert readiness.recommended_relogin_required is True
+    assert report["phase"] == "phase_2_permissions_operator_readiness"
+    assert report["operator_readiness"]["operator_action_required"] is True
+    assert report["operator_readiness"]["recommended_operator_commands"] == [
+        'sudo usermod -aG dialout "$USER"'
+    ]
+    assert "does not confirm that the arm is safe to move" in report["phase_2_limitations"]
+
+
+def test_permission_check_reports_group_ready_without_motion_readiness(tmp_path, monkeypatch):
+    fake_device = tmp_path / "ttyUSB0"
+    fake_device.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(probe.getpass, "getuser", lambda: "janus-test")
+    monkeypatch.setattr(probe.os, "getuid", lambda: 1000)
+    monkeypatch.setattr(probe.os, "getgid", lambda: 1000)
+    monkeypatch.setattr(probe.os, "getgroups", lambda: [20, 1000])
+    monkeypatch.setattr(
+        probe.pwd,
+        "getpwuid",
+        lambda uid: type("User", (), {"pw_name": "root" if uid == 0 else "janus-test"})(),
+    )
+    monkeypatch.setattr(
+        probe.grp,
+        "getgrgid",
+        lambda gid: type("Group", (), {"gr_name": "dialout" if gid == 20 else "janus-test"})(),
+    )
+
+    readiness = probe.inspect_permission_readiness(
+        str(fake_device),
+        access_fn=lambda device, mode: True,
+        stat_fn=lambda path: os.stat_result(
+            (
+                stat.S_IFCHR | 0o660,
+                1,
+                1,
+                1,
+                0,
+                20,
+                0,
+                0,
+                0,
+                0,
+            )
+        ),
+    )
+    status = probe.determine_phase_2_status(readiness)
+    markdown = probe.render_markdown(
+        probe.build_report(readiness.path_metadata, status, permission_readiness=readiness)
+    )
+
+    assert status.status == "permission_check_ready_for_future_identity_phase"
+    assert readiness.user_in_device_group is True
+    assert readiness.operator_action_required is False
+    assert readiness.recommended_operator_commands == []
+    assert "This is not a hardware movement readiness result." in markdown
+    assert "does not confirm torque/motor readiness" in markdown
+
+
+def test_permission_check_recommends_relogin_when_group_file_is_updated_but_session_is_not(
+    tmp_path, monkeypatch
+):
+    fake_device = tmp_path / "ttyUSB0"
+    fake_device.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(probe.getpass, "getuser", lambda: "janus-test")
+    monkeypatch.setattr(probe.os, "getuid", lambda: 1000)
+    monkeypatch.setattr(probe.os, "getgid", lambda: 1000)
+    monkeypatch.setattr(probe.os, "getgroups", lambda: [1000])
+    monkeypatch.setattr(
+        probe.pwd,
+        "getpwuid",
+        lambda uid: type("User", (), {"pw_name": "root" if uid == 0 else "janus-test"})(),
+    )
+    monkeypatch.setattr(
+        probe.grp,
+        "getgrgid",
+        lambda gid: type(
+            "Group",
+            (),
+            {
+                "gr_name": "dialout" if gid == 20 else "janus-test",
+                "gr_mem": ["janus-test"] if gid == 20 else [],
+            },
+        )(),
+    )
+
+    readiness = probe.inspect_permission_readiness(
+        str(fake_device),
+        access_fn=lambda device, mode: False,
+        stat_fn=lambda path: os.stat_result(
+            (
+                stat.S_IFCHR | 0o660,
+                1,
+                1,
+                1,
+                0,
+                20,
+                0,
+                0,
+                0,
+                0,
+            )
+        ),
+    )
+
+    assert readiness.user_in_device_group is False
+    assert readiness.user_listed_in_device_group is True
+    assert readiness.operator_action_required is True
+    assert readiness.recommended_operator_commands == []
+    assert readiness.recommended_relogin_required is True
+    assert "Log out and back in, or reboot" in readiness.operator_action_reason
+
+
+def test_permission_check_missing_device_recommends_safe_discovery_command(tmp_path):
+    missing_device = tmp_path / "missing-ttyUSB0"
+
+    readiness = probe.inspect_permission_readiness(str(missing_device))
+    status = probe.determine_phase_2_status(readiness)
+
+    assert status.status == "permission_check_device_path_missing"
+    assert status.exit_code == 1
+    assert readiness.path_exists is False
+    assert readiness.operator_action_required is True
+    assert readiness.recommended_operator_commands == ["ls -l /dev/ttyUSB* /dev/ttyACM*"]
+    assert readiness.recommended_relogin_required is False
+
+
 def test_backward_compatible_serial_open_flag_is_metadata_only(tmp_path):
     fake_device = tmp_path / "fake-so-arm-controller"
     fake_device.write_text("", encoding="utf-8")
@@ -189,6 +368,37 @@ def test_backward_compatible_serial_open_flag_is_metadata_only(tmp_path):
     assert (output_dir / "latest.json").is_file()
     assert "No serial port opened. No bytes sent. Metadata only." in result.stdout
     assert "Opt-in acknowledged: this implementation only checked path metadata." in result.stdout
+
+
+def test_cli_permission_check_writes_operator_readiness_fields(tmp_path):
+    fake_device = tmp_path / "fake-so-arm-controller"
+    fake_device.write_text("", encoding="utf-8")
+    output_dir = tmp_path / "reports"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--enable-permission-check",
+            "--device",
+            str(fake_device),
+            "--output-dir",
+            str(output_dir),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    report = json.loads((output_dir / "latest.json").read_text(encoding="utf-8"))
+
+    assert result.returncode == 0
+    assert "Phase 2 permission/operator readiness" in result.stdout
+    assert "This is not a hardware movement readiness result." in result.stdout
+    assert report["phase"] == "phase_2_permissions_operator_readiness"
+    assert report["device_path"] == str(fake_device)
+    assert "operator_readiness" in report
+    assert "recommended_operator_commands" in report["operator_readiness"]
+    assert report["safety_flags"] == probe.SAFETY_FLAGS
 
 
 def test_metadata_report_represents_permission_incomplete_state(tmp_path, monkeypatch):

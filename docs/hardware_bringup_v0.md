@@ -19,6 +19,8 @@ actuator calls.
 - physical demo runner completed with operator confirmations
 - no real arm/base movement has been validated
 - SO-ARM Readiness Phase 1 is metadata-only and fail-closed by default
+- SO-ARM Readiness Phase 2 is permissions/operator-readiness only and does not
+  open serial
 
 ## Not verified yet
 
@@ -164,18 +166,34 @@ Phase 1 safety flags are all false:
 
 The Phase 1 note is explicit: no serial port is opened and no bytes are sent.
 
-Stage 2: explicit opt-in serial open. Any serial-open action must be
-operator-triggered, must follow protocol/library discovery, and must not happen
-until a safe read-only protocol is defined.
+Stage 2: permissions-only operator readiness. `scripts/probe_so_arm_readiness.py`
+adds an explicit `--enable-permission-check` mode that records Linux
+permissions, current user/group membership, and safe operator recommendations.
+It remains metadata-only and does not open the serial port.
 
-### Phase 2 permissions-only readiness
+Phase 2 writes the same ignored local report paths:
 
-The next SO-ARM work package should stay permissions-only and operator-facing.
-It should not open the serial port, send commands, enable torque, command
-movement, call actuators, run LeRobot control APIs, run a live camera, or run a
-physical demo.
+- `tmp/so-arm-readiness/latest.json`
+- `tmp/so-arm-readiness/latest.md`
 
-Allowed Phase 2 checks:
+Run:
+
+```bash
+.venv/bin/python scripts/probe_so_arm_readiness.py --enable-permission-check
+```
+
+Useful operator evidence commands:
+
+```bash
+id
+groups
+ls -l /dev/ttyUSB0
+readlink -f /dev/ttyUSB0
+stat /dev/ttyUSB0
+ls -l /dev/ttyUSB* /dev/ttyACM*
+```
+
+Allowed Phase 2 checks are limited to:
 
 - check whether the operator is in the Linux group that owns serial access, such
   as `dialout`
@@ -185,18 +203,52 @@ Allowed Phase 2 checks:
   or udev rules
 - re-run Phase 1 metadata reports after permission changes
 
+If `/dev/ttyUSB0` exists but is owned by `root:dialout` with mode `0660`, and
+the current user is not in `dialout`, the expected manual operator fix is:
+
+```bash
+sudo usermod -aG dialout "$USER"
+```
+
+Run that command manually only when appropriate for the host. A logout/login or
+reboot is usually required before the new group membership is visible to the
+current desktop/session.
+
+If the path does not exist, first check USB connection, power, cable, and serial
+device enumeration:
+
+```bash
+ls -l /dev/ttyUSB* /dev/ttyACM*
+```
+
 Phase 2 completion should prove only that the operator can prepare the machine
 for a future protocol/library discovery step. It still must not prove or imply
 that the arm is safe to move.
 
-Stage 3: read-only identity/state query. Only add protocol/library reads if the
+Phase 2 explicitly does not:
+
+- open serial
+- read from or write to the serial port
+- send bytes
+- enable torque
+- command movement
+- call actuators
+- import or call LeRobot hardware-control APIs
+- confirm that the serial protocol is valid
+- confirm that torque/motor readiness exists
+- confirm that the arm is safe to move
+
+Stage 3: adapter contract skeleton. Define the arm adapter boundary and
+metadata-only SO-ARM adapter shape before any serial/protocol work.
+
+Stage 4: read-only identity/state query. Only add protocol/library reads if the
 SO-ARM 101 stack supports identity or state queries without writes, torque
 enablement, homing, or movement.
 
-Stage 4: torque-disabled state verification. Verify the arm remains
+Stage 5: torque-disabled state verification. Verify the arm remains
 torque-disabled before any later motion planning.
 
-Stage 5: separate future controlled motion plan. Motion, torque enablement, base
+Stage 6: separate future controlled motion plan. Motion, torque enablement, base
 control, and actuator calls remain out of scope for Hardware Bring-up v0 and
 must be planned in a separate PR with explicit safety gates.
 
@@ -207,6 +259,7 @@ Probe-only:
 - [x] identify connection/interface by operator-confirmed kit provenance
 - [x] verify fail-closed default readiness wrapper
 - [x] write metadata-only local readiness reports
+- [x] report permissions/operator readiness without opening serial
 - [ ] identify required runtime/library
 - [ ] read model/config if possible
 - [ ] read joint/state if possible
