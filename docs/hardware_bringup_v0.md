@@ -304,12 +304,43 @@ unavailable while remaining valid as dry-run intent when the command is safe.
 Phase 4 must not open serial, enable torque, command movement, send bytes, call
 hardware-control APIs, or import/call LeRobot hardware-control code.
 
-Phase 5: read-only serial identity/state gate. This is the first phase where a
-serial port may possibly be opened, and only if the selected protocol/library
-supports a safe read-only identity or state query. Phase 5 must not send
-movement commands, enable torque, home the arm, or write to the serial port
-unless a safe identity protocol plan explicitly justifies the write and receives
-separate review.
+Phase 5A: serial open/close gate. This is the first hardware serial contact,
+and it is allowed only behind `--enable-serial-open-close-check`. The gate opens
+the SO-ARM serial path with a timeout, sends no bytes, reads no bytes, and
+closes the port immediately. The existing legacy `--enable-serial-open` flag
+remains a Phase 1 metadata-only compatibility alias and must not be repurposed.
+
+Phase 5A writes the same local ignored report paths:
+
+- `tmp/so-arm-readiness/latest.json`
+- `tmp/so-arm-readiness/latest.md`
+
+Run:
+
+```bash
+.venv/bin/python scripts/probe_so_arm_readiness.py --enable-serial-open-close-check
+```
+
+The report records `phase: 5A`, `mode: serial_open_close_check`, permission
+evidence, `serial_open_attempted`, `serial_opened`, `serial_closed`, backend,
+timeout, `serial_bytes_written: 0`, `serial_bytes_read: 0`, and safety flags.
+`serial_opened` is true only when the open succeeds. `serial_closed` is true
+only when close succeeds.
+
+If `pyserial` is unavailable, the gate fails closed with
+`serial_backend_missing`. This is a dependency readiness result, not a hardware
+failure. Do not replace it with lower-level host file opens.
+
+Phase 5A does not validate protocol, identity, state, torque, homing, motion
+safety, or actuator readiness. It must not send bytes, read bytes, enable
+torque, command movement, call actuator APIs, execute dry-run arm commands, or
+import/call LeRobot hardware-control code.
+
+Phase 5B: read-only serial identity/state gate. This is separately planned
+future work, and only if the selected protocol/library supports safe read-only
+identity or state discovery. Phase 5B must not send movement commands, enable
+torque, home the arm, or write to the serial port unless a safe identity
+protocol plan explicitly justifies the write and receives separate review.
 
 Phase 6: torque-disabled verification. Verify that the arm remains
 torque-disabled before later motion planning. Phase 6 still allows no motion and
@@ -329,6 +360,7 @@ Probe-only:
 - [x] Phase 2 permissions/operator readiness
 - [x] Phase 3 metadata-only SO-ARM adapter skeleton
 - [x] Phase 4 dry-run command envelope
+- [x] Phase 5A serial open/close gate
 - [ ] Phase 5 identify required runtime/library
 - [ ] Phase 5 read model/config if possible
 - [ ] Phase 5 read joint/state if possible
@@ -358,7 +390,8 @@ Probe-only:
 
 ## Follow-up PR slices
 
-- PR Phase 5: read-only SO-ARM serial identity/state gate
+- PR Phase 5A: SO-ARM serial open/close gate
+- PR Phase 5B: read-only SO-ARM serial identity/state gate
 - PR Phase 6: torque-disabled verification
 - PR Phase 7: controlled motion safety plan / first supervised movement
 - tracked base remains separate and probe-only

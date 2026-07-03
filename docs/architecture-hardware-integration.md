@@ -160,6 +160,45 @@ It has no live execution flag. It must not open serial, send bytes, enable
 torque, command movement, call actuator APIs, or import/call LeRobot
 hardware-control APIs.
 
+## Serial Open/Close Gate
+
+Phase 5A is the first allowed hardware serial contact. It is intentionally
+smaller than an identity/state probe: the operator must pass
+`--enable-serial-open-close-check`, the tool opens the SO-ARM serial path with a
+timeout, sends no bytes, reads no bytes, and closes the port immediately.
+
+The legacy `--enable-serial-open` flag remains a metadata-only compatibility
+alias. It must not open serial.
+
+Phase 5A evidence includes:
+
+- `phase: 5A`
+- `mode: serial_open_close_check`
+- device path and resolved path
+- permission evidence
+- `serial_open_attempted`
+- `serial_opened`
+- `serial_closed`
+- serial backend and timeout
+- `serial_bytes_written: 0`
+- `serial_bytes_read: 0`
+- safety flags and limitations
+
+The implementation uses a lazy pyserial backend only inside the explicit Phase
+5A gate. If pyserial is unavailable, the result fails closed with
+`serial_backend_missing`. The project should not bypass that with raw host file
+opens.
+
+Phase 5A does not validate protocol, identity, state, torque, homing, motion
+safety, or actuator readiness. It must not import or call LeRobot
+hardware-control APIs. It must not append events, update dashboard artifacts, or
+write replay outputs directly; the orchestrator can later decide whether to
+record returned evidence.
+
+Phase 5B should be planned separately as a read-only identity/state query after
+reviewing whether the protocol/library can perform discovery without torque,
+homing, movement, or unsafe writes.
+
 ## Adapter Failure Semantics
 
 Adapters must fail closed.
@@ -349,7 +388,16 @@ Hardware access is gated by explicit safety levels:
 CI and replay paths should use simulation or no-op adapters. They must not
 require physical devices.
 
-The first SO-ARM 101 serial identity/state phase should require flags
+The first SO-ARM 101 serial open/close phase should require flags equivalent to:
+
+```text
+--enable-serial-open-close-check
+```
+
+This opens and closes the serial path only. It sends no bytes, reads no bytes,
+and does not validate protocol or identity.
+
+The later SO-ARM 101 serial identity/state phase should require flags
 equivalent to:
 
 ```text
