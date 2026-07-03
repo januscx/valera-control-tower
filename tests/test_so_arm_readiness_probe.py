@@ -370,6 +370,163 @@ def test_backward_compatible_serial_open_flag_is_metadata_only(tmp_path):
     assert "Opt-in acknowledged: this implementation only checked path metadata." in result.stdout
 
 
+def test_5A_success_uses_mock_backend_without_read_write(tmp_path):
+    fake_device = tmp_path / "ttyUSB0"
+    fake_device.write_text("", encoding="utf-8")
+    calls = {"opened": 0, "closed": 0, "read": 0, "write": 0}
+
+    class FakeSerial:
+        def __init__(self, port, baudrate, timeout, write_timeout):
+            calls["opened"] += 1
+            self.port = port
+            self.baudrate = baudrate
+            self.timeout = timeout
+            self.write_timeout = write_timeout
+
+        def close(self):
+            calls["closed"] += 1
+
+        def read(self, _size=1):
+            calls["read"] += 1
+            raise AssertionError("Phase 5A must not read")
+
+        def write(self, _payload):
+            calls["write"] += 1
+            raise AssertionError("Phase 5A must not write")
+
+    readiness = probe.inspect_permission_readiness(str(fake_device))
+    result = probe.perform_serial_open_close_check(
+        readiness,
+        serial_factory=FakeSerial,
+        timeout_seconds=0.25,
+    )
+
+    assert result.exit_code == 0
+    assert result.status == "serial_open_close_ready"
+    assert result.serial_open_attempted is True
+    assert result.serial_opened is True
+    assert result.serial_closed is True
+    assert result.serial_backend == "pyserial"
+    assert result.serial_timeout_seconds == 0.25
+    assert result.serial_bytes_written == 0
+    assert result.serial_bytes_read == 0
+    assert result.safety_flags["serial_opened"] is True
+    assert result.safety_flags["serial_commands_sent"] is False
+    assert calls == {"opened": 1, "closed": 1, "read": 0, "write": 0}
+
+
+def test_phase_5a_serial_open_failure_fails_closed(tmp_path):
+    fake_device = tmp_path / "ttyUSB0"
+    fake_device.write_text("", encoding="utf-8")
+
+    class FailingSerial:
+        def __init__(self, port, baudrate, timeout, write_timeout):
+            raise PermissionError("denied")
+
+    readiness = probe.inspect_permission_readiness(str(fake_device))
+    result = probe.perform_serial_open_close_check(readiness, serial_factory=FailingSerial)
+
+    assert result.exit_code == 1
+    assert result.status == "serial_open_close_failed"
+    assert result.serial_open_attempted is True
+    assert result.serial_opened is False
+    assert result.serial_closed is False
+    assert result.serial_bytes_written == 0
+    assert result.serial_bytes_read == 0
+    assert "denied" in result.error
+    assert result.safety_flags["serial_opened"] is False
+    assert result.safety_flags["torque_enabled"] is False
+
+
+def test_phase_5a_missing_backend_fails_closed(tmp_path):
+    fake_device = tmp_path / "ttyUSB0"
+    fake_device.write_text("", encoding="utf-8")
+    readiness = probe.inspect_permission_readiness(str(fake_device))
+
+    result = probe.perform_serial_open_close_check(
+        readiness,
+        serial_factory_loader=lambda: (_ for _ in ()).throw(ModuleNotFoundError("serial")),
+    )
+
+    assert result.exit_code == 1
+    assert result.status == "serial_backend_missing"
+    assert result.serial_open_attempted is False
+    assert result.serial_opened is False
+    assert result.serial_closed is False
+    assert result.serial_backend == "missing_pyserial"
+    assert "pyserial is not installed" in result.next_operator_action
+
+
+def test_phase_5a_report_contains_limitations_and_serial_evidence(tmp_path):
+    fake_device = tmp_path / "ttyUSB0"
+    fake_device.write_text("", encoding="utf-8")
+
+    class FakeSerial:
+        def __init__(self, port, baudrate, timeout, write_timeout):
+            pass
+
+        def close(self):
+            pass
+
+    readiness = probe.inspect_permission_readiness(str(fake_device))
+    serial_check = probe.perform_serial_open_close_check(readiness, serial_factory=FakeSerial)
+    report = probe.build_report(
+        readiness.path_metadata,
+        probe.Phase1Status(
+            exit_code=serial_check.exit_code,
+            status=serial_check.status,
+            next_operator_action=serial_check.next_operator_action,
+        ),
+        permission_readiness=readiness,
+        serial_open_close_result=serial_check,
+    )
+    markdown = probe.render_markdown(report)
+
+    assert report["phase"] == "5A"
+    assert report["mode"] == "serial_open_close_check"
+    assert report["serial_open_attempted"] is True
+    assert report["serial_opened"] is True
+    assert report["serial_closed"] is True
+    assert report["serial_bytes_written"] == 0
+    assert report["serial_bytes_read"] == 0
+    assert "does not validate protocol" in report["phase_5a_limitations"]
+    assert "# SO-ARM Readiness Phase 5A" in markdown
+    assert "- Serial opened: True" in markdown
+    assert "- serial_commands_sent: false" in markdown
+
+
+def test_cli_5A_uses_mocked_backend(tmp_path, monkeypatch):
+    fake_device = tmp_path / "ttyUSB0"
+    fake_device.write_text("", encoding="utf-8")
+    output_dir = tmp_path / "reports"
+
+    class FakeSerial:
+        def __init__(self, port, baudrate, timeout, write_timeout):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(probe, "load_serial_factory", lambda: FakeSerial)
+    exit_code = probe.main(
+        [
+            "--enable-serial-open-close-check",
+            "--device",
+            str(fake_device),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+    report = json.loads((output_dir / "latest.json").read_text(encoding="utf-8"))
+
+    assert exit_code == 0
+    assert report["phase"] == "5A"
+    assert report["serial_opened"] is True
+    assert report["serial_closed"] is True
+    assert report["serial_bytes_written"] == 0
+    assert report["serial_bytes_read"] == 0
+
+
 def test_cli_permission_check_writes_operator_readiness_fields(tmp_path):
     fake_device = tmp_path / "fake-so-arm-controller"
     fake_device.write_text("", encoding="utf-8")
@@ -467,13 +624,10 @@ def test_source_has_no_serial_or_actuator_operations():
     source = SCRIPT_PATH.read_text(encoding="utf-8")
 
     forbidden_snippets = [
-        "serial.Serial",
-        "import serial",
-        "from serial",
         "os.open(",
         "open(",
-        "pyserial",
         ".write(",
+        ".read(",
         "enable_torque(",
         "move(",
         "actuate(",
@@ -485,3 +639,6 @@ def test_source_has_no_serial_or_actuator_operations():
     ]
     for snippet in forbidden_snippets:
         assert snippet not in source
+
+    assert "import_module(\"serial\")" in source
+    assert "getattr(serial_module, \"Serial\")" in source

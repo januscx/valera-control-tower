@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import grp
+import importlib
 import json
 import os
 import pwd
@@ -39,6 +40,16 @@ PHASE_2_LIMITATIONS = (
     "that the arm is safe to move. This does not confirm that the serial "
     "protocol is valid. This does not confirm torque/motor readiness. This "
     "only checks filesystem/device permissions and operator setup."
+)
+PHASE_5A_NOTE = (
+    "Phase 5A only opens and immediately closes the serial port after explicit "
+    "operator opt-in. It sends no bytes and reads no bytes."
+)
+PHASE_5A_LIMITATIONS = (
+    "This does not validate protocol, identity, state, torque, homing, motion "
+    "safety, or actuator readiness. Phase 5B must separately review whether "
+    "the protocol/library can perform read-only identity/state discovery "
+    "without torque, homing, movement, or unsafe writes."
 )
 COMMON_SERIAL_GROUPS = {"dialout", "uucp", "tty", "serial", "plugdev"}
 SAFETY_FLAGS = {
@@ -95,6 +106,23 @@ class PermissionReadiness:
     recommended_relogin_required: bool
 
 
+@dataclass(frozen=True)
+class SerialOpenCloseResult:
+    exit_code: int
+    status: str
+    next_operator_action: str
+    serial_open_attempted: bool
+    serial_opened: bool
+    serial_closed: bool
+    serial_backend: str
+    serial_timeout_seconds: float
+    serial_bytes_written: int
+    serial_bytes_read: int
+    safety_flags: dict[str, bool]
+    limitations: str
+    error: str | None = None
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -136,6 +164,21 @@ def build_parser() -> argparse.ArgumentParser:
             "Explicit operator opt-in for Phase 2 permissions/operator "
             "readiness reporting. This does not open serial or send bytes."
         ),
+    )
+    parser.add_argument(
+        "--enable-serial-open-close-check",
+        action="store_true",
+        help=(
+            "Explicit operator opt-in for Phase 5A serial open/close readiness. "
+            "This opens the serial port with a timeout, sends no bytes, reads "
+            "no bytes, and closes it immediately."
+        ),
+    )
+    parser.add_argument(
+        "--serial-timeout-seconds",
+        type=float,
+        default=0.5,
+        help="Timeout for the Phase 5A open/close check; defaults to 0.5 seconds.",
     )
     parser.add_argument(
         "--output-dir",
@@ -390,11 +433,167 @@ def determine_phase_2_status(readiness: PermissionReadiness) -> Phase1Status:
     )
 
 
+def load_serial_factory():
+    serial_module = importlib.import_module("serial")
+    return getattr(serial_module, "Serial")
+
+
+def perform_serial_open_close_check(
+    readiness: PermissionReadiness,
+    *,
+    serial_factory=None,
+    serial_factory_loader=None,
+    timeout_seconds: float = 0.5,
+) -> SerialOpenCloseResult:
+    base_flags = dict(SAFETY_FLAGS)
+    if not readiness.path_exists:
+        return SerialOpenCloseResult(
+            exit_code=1,
+            status="serial_open_close_device_path_missing",
+            next_operator_action=(
+                "Device path is missing. Do not attempt serial identity/state "
+                "work until the operator resolves USB connection and path enumeration."
+            ),
+            serial_open_attempted=False,
+            serial_opened=False,
+            serial_closed=False,
+            serial_backend="not_loaded",
+            serial_timeout_seconds=timeout_seconds,
+            serial_bytes_written=0,
+            serial_bytes_read=0,
+            safety_flags=base_flags,
+            limitations=PHASE_5A_LIMITATIONS,
+        )
+    if not readiness.readable or not readiness.writable:
+        return SerialOpenCloseResult(
+            exit_code=1,
+            status="serial_open_close_permission_blocked",
+            next_operator_action=(
+                "Current session cannot read/write the device path. Fix operator "
+                "permissions before Phase 5A serial contact."
+            ),
+            serial_open_attempted=False,
+            serial_opened=False,
+            serial_closed=False,
+            serial_backend="not_loaded",
+            serial_timeout_seconds=timeout_seconds,
+            serial_bytes_written=0,
+            serial_bytes_read=0,
+            safety_flags=base_flags,
+            limitations=PHASE_5A_LIMITATIONS,
+        )
+
+    try:
+        loader = load_serial_factory if serial_factory_loader is None else serial_factory_loader
+        factory = serial_factory if serial_factory is not None else loader()
+    except ModuleNotFoundError as exc:
+        return SerialOpenCloseResult(
+            exit_code=1,
+            status="serial_backend_missing",
+            next_operator_action=(
+                "pyserial is not installed or importable. Do not add hardware "
+                "contact until the dependency plan is reviewed."
+            ),
+            serial_open_attempted=False,
+            serial_opened=False,
+            serial_closed=False,
+            serial_backend="missing_pyserial",
+            serial_timeout_seconds=timeout_seconds,
+            serial_bytes_written=0,
+            serial_bytes_read=0,
+            safety_flags=base_flags,
+            limitations=PHASE_5A_LIMITATIONS,
+            error=str(exc),
+        )
+
+    serial_handle = None
+    serial_opened = False
+    serial_closed = False
+    open_error: Exception | None = None
+    try:
+        serial_handle = factory(
+            port=readiness.device_path,
+            baudrate=1_000_000,
+            timeout=timeout_seconds,
+            write_timeout=timeout_seconds,
+        )
+        serial_opened = True
+        base_flags["serial_opened"] = True
+    except Exception as exc:
+        open_error = exc
+    finally:
+        if serial_handle is not None:
+            try:
+                serial_handle.close()
+                serial_closed = True
+            except Exception as exc:
+                open_error = exc
+                serial_closed = False
+
+    if serial_opened and serial_closed and open_error is None:
+        return SerialOpenCloseResult(
+            exit_code=0,
+            status="serial_open_close_ready",
+            next_operator_action=(
+                "Record this open/close evidence. Phase 5B may plan read-only "
+                "identity/state discovery, but this result does not validate protocol."
+            ),
+            serial_open_attempted=True,
+            serial_opened=True,
+            serial_closed=True,
+            serial_backend="pyserial",
+            serial_timeout_seconds=timeout_seconds,
+            serial_bytes_written=0,
+            serial_bytes_read=0,
+            safety_flags=base_flags,
+            limitations=PHASE_5A_LIMITATIONS,
+        )
+
+    if open_error is not None:
+        return SerialOpenCloseResult(
+            exit_code=1,
+            status="serial_open_close_failed",
+            next_operator_action=(
+                "Serial open/close failed. Keep the system fail-closed and do "
+                "not attempt protocol, torque, homing, or movement checks."
+            ),
+            serial_open_attempted=True,
+            serial_opened=serial_opened,
+            serial_closed=serial_closed,
+            serial_backend="pyserial",
+            serial_timeout_seconds=timeout_seconds,
+            serial_bytes_written=0,
+            serial_bytes_read=0,
+            safety_flags=base_flags,
+            limitations=PHASE_5A_LIMITATIONS,
+            error=f"{type(open_error).__name__}: {open_error}",
+        )
+
+    return SerialOpenCloseResult(
+        exit_code=1,
+        status="serial_open_close_failed",
+        next_operator_action=(
+            "Serial open/close did not complete. Keep the system fail-closed."
+        ),
+        serial_open_attempted=True,
+        serial_opened=serial_opened,
+        serial_closed=serial_closed,
+        serial_backend="pyserial",
+        serial_timeout_seconds=timeout_seconds,
+        serial_bytes_written=0,
+        serial_bytes_read=0,
+        safety_flags=base_flags,
+        limitations=PHASE_5A_LIMITATIONS,
+        error="serial open/close did not complete",
+    )
+
+
 def build_report(
     readiness: PathReadiness,
     phase_status: Phase1Status,
     *,
     permission_readiness: PermissionReadiness | None = None,
+    serial_open_close_result: SerialOpenCloseResult | None = None,
 ) -> dict:
     report = {
         "schema_version": 1,
@@ -465,6 +664,31 @@ def build_report(
                 },
             }
         )
+    if serial_open_close_result is not None:
+        report.update(
+            {
+                "phase": "5A",
+                "mode": "serial_open_close_check",
+                "phase_5a_note": PHASE_5A_NOTE,
+                "phase_5a_limitations": PHASE_5A_LIMITATIONS,
+                "device_path": permission_readiness.device_path if permission_readiness else readiness.path,
+                "resolved_path": (
+                    permission_readiness.resolved_path
+                    if permission_readiness
+                    else readiness.resolved_target
+                ),
+                "serial_open_attempted": serial_open_close_result.serial_open_attempted,
+                "serial_opened": serial_open_close_result.serial_opened,
+                "serial_closed": serial_open_close_result.serial_closed,
+                "serial_backend": serial_open_close_result.serial_backend,
+                "serial_timeout_seconds": serial_open_close_result.serial_timeout_seconds,
+                "serial_bytes_written": serial_open_close_result.serial_bytes_written,
+                "serial_bytes_read": serial_open_close_result.serial_bytes_read,
+                "serial_error": serial_open_close_result.error,
+                "safety_flags": dict(serial_open_close_result.safety_flags),
+                "limitations": serial_open_close_result.limitations,
+            }
+        )
     return report
 
 
@@ -492,8 +716,15 @@ def render_markdown(report: dict) -> str:
     metadata = report["path_metadata"]
     safety_flags = report["safety_flags"]
     is_phase_2 = report["phase"] == "phase_2_permissions_operator_readiness"
+    is_phase_5a = report["phase"] == "5A"
     lines = [
-        "# SO-ARM Readiness Phase 2" if is_phase_2 else "# SO-ARM Readiness Phase 1",
+        (
+            "# SO-ARM Readiness Phase 5A"
+            if is_phase_5a
+            else "# SO-ARM Readiness Phase 2"
+            if is_phase_2
+            else "# SO-ARM Readiness Phase 1"
+        ),
         "",
         "## Summary",
         "",
@@ -509,7 +740,10 @@ def render_markdown(report: dict) -> str:
         f"- Status: `{report['status']}`",
         f"- Exit code: `{report['exit_code']}`",
         "",
-        report.get("phase_2_note", "Phase 1 does not open serial and sends no bytes."),
+        report.get(
+            "phase_5a_note",
+            report.get("phase_2_note", "Phase 1 does not open serial and sends no bytes."),
+        ),
         f"Next operator action: {report['next_operator_action']}",
         "",
         "## Path Metadata",
@@ -555,6 +789,28 @@ def render_markdown(report: dict) -> str:
                 "",
             ]
         )
+    if is_phase_5a:
+        lines.extend(
+            [
+                "## Serial Open/Close Evidence",
+                "",
+                f"- Device path: `{report['device_path']}`",
+                f"- Resolved path: `{report['resolved_path'] or 'n/a'}`",
+                f"- Serial open attempted: {report['serial_open_attempted']}",
+                f"- Serial opened: {report['serial_opened']}",
+                f"- Serial closed: {report['serial_closed']}",
+                f"- Serial backend: `{report['serial_backend']}`",
+                f"- Serial timeout seconds: `{report['serial_timeout_seconds']}`",
+                f"- Serial bytes written: `{report['serial_bytes_written']}`",
+                f"- Serial bytes read: `{report['serial_bytes_read']}`",
+                f"- Serial error: `{report['serial_error'] or 'n/a'}`",
+                "",
+                "## Phase 5A Limitations",
+                "",
+                report["phase_5a_limitations"],
+                "",
+            ]
+        )
     lines.extend(
         [
         "## Groups",
@@ -576,7 +832,13 @@ def render_console_report(
     phase_status: Phase1Status,
     report_paths: tuple[Path, Path] | None = None,
     permission_readiness: PermissionReadiness | None = None,
+    serial_open_close_result: SerialOpenCloseResult | None = None,
 ) -> str:
+    safety_flags = (
+        serial_open_close_result.safety_flags
+        if serial_open_close_result is not None
+        else SAFETY_FLAGS
+    )
     lines = [
         "SO-ARM 101 readiness probe",
         "",
@@ -596,10 +858,20 @@ def render_console_report(
         f"Exit code: {phase_status.exit_code}",
         "",
         "Safety status:",
-        *[f"- {name}: {str(value).lower()}" for name, value in SAFETY_FLAGS.items()],
+        *[f"- {name}: {str(value).lower()}" for name, value in safety_flags.items()],
         "",
-        PHASE_2_NOTE if permission_readiness is not None else PHASE_1_NOTE,
-        "No serial port opened. No bytes sent. Metadata only.",
+        (
+            PHASE_5A_NOTE
+            if serial_open_close_result is not None
+            else PHASE_2_NOTE
+            if permission_readiness is not None
+            else PHASE_1_NOTE
+        ),
+        (
+            "Serial open/close only. No bytes sent. No bytes read."
+            if serial_open_close_result is not None
+            else "No serial port opened. No bytes sent. Metadata only."
+        ),
         f"Next operator action: {phase_status.next_operator_action}",
     ]
     if permission_readiness is not None:
@@ -625,6 +897,23 @@ def render_console_report(
                 PHASE_2_LIMITATIONS,
             ]
         )
+    if serial_open_close_result is not None:
+        lines.extend(
+            [
+                "",
+                "Phase 5A serial open/close readiness",
+                f"Serial open attempted: {serial_open_close_result.serial_open_attempted}",
+                f"Serial opened: {serial_open_close_result.serial_opened}",
+                f"Serial closed: {serial_open_close_result.serial_closed}",
+                f"Serial backend: {serial_open_close_result.serial_backend}",
+                f"Serial timeout seconds: {serial_open_close_result.serial_timeout_seconds}",
+                f"Serial bytes written: {serial_open_close_result.serial_bytes_written}",
+                f"Serial bytes read: {serial_open_close_result.serial_bytes_read}",
+                f"Serial error: {serial_open_close_result.error or 'n/a'}",
+                "",
+                PHASE_5A_LIMITATIONS,
+            ]
+        )
     if phase_status.status == "fail_closed":
         lines.extend(
             [
@@ -637,7 +926,12 @@ def render_console_report(
         lines.extend(
             [
                 "",
-                "Opt-in acknowledged: this implementation only checked path metadata.",
+                (
+                    "Opt-in acknowledged: this implementation only attempted "
+                    "serial open/close and did not read or write bytes."
+                    if serial_open_close_result is not None
+                    else "Opt-in acknowledged: this implementation only checked path metadata."
+                ),
             ]
         )
         if report_paths is not None:
@@ -660,7 +954,20 @@ def _group_lines(groups: list[dict]) -> list[str]:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     permission_readiness = None
-    if args.enable_permission_check:
+    serial_open_close_result = None
+    if args.enable_serial_open_close_check:
+        permission_readiness = inspect_permission_readiness(args.device)
+        readiness = permission_readiness.path_metadata
+        serial_open_close_result = perform_serial_open_close_check(
+            permission_readiness,
+            timeout_seconds=args.serial_timeout_seconds,
+        )
+        phase_status = Phase1Status(
+            exit_code=serial_open_close_result.exit_code,
+            status=serial_open_close_result.status,
+            next_operator_action=serial_open_close_result.next_operator_action,
+        )
+    elif args.enable_permission_check:
         permission_readiness = inspect_permission_readiness(args.device)
         readiness = permission_readiness.path_metadata
         phase_status = determine_phase_2_status(permission_readiness)
@@ -671,11 +978,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             metadata_check=args.enable_metadata_check,
         )
     report_paths = None
-    if args.enable_metadata_check or args.enable_permission_check:
+    if args.enable_metadata_check or args.enable_permission_check or args.enable_serial_open_close_check:
         report = build_report(
             readiness,
             phase_status,
             permission_readiness=permission_readiness,
+            serial_open_close_result=serial_open_close_result,
         )
         report_paths = write_reports(report, Path(args.output_dir))
     print(
@@ -684,6 +992,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             phase_status=phase_status,
             report_paths=report_paths,
             permission_readiness=permission_readiness,
+            serial_open_close_result=serial_open_close_result,
         ),
         end="",
     )
