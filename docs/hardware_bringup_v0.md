@@ -327,9 +327,14 @@ timeout, `serial_bytes_written: 0`, `serial_bytes_read: 0`, and safety flags.
 `serial_opened` is true only when the open succeeds. `serial_closed` is true
 only when close succeeds.
 
-If `pyserial` is unavailable, the gate fails closed with
+`pyserial` is declared in `requirements-dev.txt` for local Phase 5A
+verification. If `pyserial` is unavailable, the gate fails closed with
 `serial_backend_missing`. This is a dependency readiness result, not a hardware
 failure. Do not replace it with lower-level host file opens.
+
+On `valera`, after installing `requirements-dev.txt` into `.venv`, Phase 5A
+opened and closed the SO-ARM serial path successfully with zero bytes written
+and zero bytes read.
 
 Phase 5A does not validate protocol, identity, state, torque, homing, motion
 safety, or actuator readiness. It must not send bytes, read bytes, enable
