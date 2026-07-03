@@ -86,8 +86,9 @@ result for the orchestrator or a local operator report, but it must not append
 events directly, update dashboard artifacts directly, or bypass safety gates.
 For SO-ARM Readiness Phases 1 and 2, the probe is not an adapter control path at
 all: it is a metadata and permissions report over filesystem paths and operator
-setup. Phase 3 should introduce adapter contracts before any serial/protocol
-work.
+setup. Phase 3 introduced adapter contracts before any serial/protocol work.
+Phase 4 should remain dry-run only; Phase 5 is the first possible serial
+identity/state gate.
 
 ## Commands, Results, And Events
 
@@ -284,14 +285,15 @@ Hardware access is gated by explicit safety levels:
 CI and replay paths should use simulation or no-op adapters. They must not
 require physical devices.
 
-The first SO-ARM 101 hardware stage should require flags equivalent to:
+The first SO-ARM 101 serial identity/state phase should require flags
+equivalent to:
 
 ```text
 --hardware
 --probe-only
 ```
 
-Before that stage, Phase 1 only allows:
+Before that phase, Phase 1 only allows:
 
 ```text
 scripts/probe_so_arm_readiness.py --enable-metadata-check
@@ -300,10 +302,11 @@ scripts/probe_so_arm_readiness.py --enable-metadata-check
 This records metadata for
 `/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0`, which resolves to the CH340
 path `/dev/ttyUSB0` on Valera. The identity basis is operator-confirmed SO-101
-motor kit provenance. The next phase is protocol/library discovery before any
-read/write serial probe.
+motor kit provenance. Phase 4 is a dry-run command envelope with no serial
+open. Phase 5 is protocol/library discovery before any read-only serial
+identity/state probe.
 
-The first motion stage should require flags equivalent to:
+The first motion phase should require flags equivalent to:
 
 ```text
 --hardware
