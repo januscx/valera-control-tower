@@ -412,7 +412,7 @@ def _next_actions(status: ArmCommandStatus) -> list[str]:
     if status == ArmCommandStatus.ACCEPTED_DRY_RUN:
         return [
             "Record dry-run evidence only if the orchestrator chooses to append an event.",
-            "Keep Phase 5 limited to read-only serial identity/state gates.",
+            "Keep Phase 5 limited to non-actuating serial identity checkpoints.",
         ]
     return [
         "Fix the command envelope before recording dry-run evidence.",

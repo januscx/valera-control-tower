@@ -18,6 +18,7 @@ import os
 import pwd
 import socket
 import stat
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +26,15 @@ from typing import Callable, Sequence
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from robot.so_arm_protocol import (  # noqa: E402
+    SOArmIdentityQueryResult,
+    build_default_identity_query_plan,
+    execute_confirmed_identity_query,
+)
+
 KNOWN_SO_ARM_DEVICE = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
 KNOWN_SO_ARM_TARGET = "../../ttyUSB0"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "tmp" / "so-arm-readiness"
@@ -47,35 +57,46 @@ PHASE_5A_NOTE = (
 )
 PHASE_5A_LIMITATIONS = (
     "This does not validate protocol, identity, state, torque, homing, motion "
-    "safety, or actuator readiness. Phase 5B must separately review whether "
-    "the protocol/library can perform read-only identity/state discovery "
-    "without torque, homing, movement, or unsafe writes."
+    "safety, or actuator readiness. Phase 5B must separately use the "
+    "non-actuating identity checkpoint and record any request/response bytes "
+    "without torque, homing, movement, or actuator calls."
 )
 PHASE_5B_PLAN_NOTE = (
     "Phase 5B identity/state query is not executed. This planning report opens "
     "no serial port, sends no bytes, and reads no bytes."
 )
 PHASE_5B_PLAN_LIMITATIONS = (
-    "The project has not yet selected and reviewed a non-actuating SO-ARM "
-    "identity/state protocol implementation. Feetech PING and READ DATA style "
-    "queries are request/response operations, so they require bytes to be sent "
-    "before bytes can be read. Do not call this passive read-only unless the "
-    "query plan explicitly records bytes written and proves it cannot enable "
-    "torque, homing, movement, or actuator state changes."
+    "The project has selected a narrow project-owned Feetech-style PING "
+    "identity checkpoint, but it has not been approved or run against hardware. "
+    "Feetech PING and READ DATA style queries are request/response operations, "
+    "so they require bytes to be sent before bytes can be read. Do not call "
+    "this passive read-only; any approved query must record bytes written and "
+    "prove it cannot enable torque, homing, movement, or actuator state changes."
+)
+PHASE_5B_QUERY_NOTE = (
+    "Phase 5B non-actuating identity query is request/response, not passive. "
+    "Without the explicit confirmation flag this report is an operator "
+    "checkpoint only and sends no bytes."
+)
+PHASE_5B_QUERY_LIMITATIONS = (
+    "This gate plans a Feetech-style PING identity request. PING is intended to "
+    "request a status response and does not require torque, homing, movement, "
+    "or actuator commands, but it still writes request bytes. A successful "
+    "response does not validate model configuration, joint state, torque "
+    "disablement, homing, motion safety, or readiness to move."
 )
 IDENTITY_STATE_PROTOCOL_FINDINGS = {
     "protocol_candidate": "Feetech serial bus servo protocol",
-    "library_candidate": "LeRobot Feetech SDK / scservo-compatible SDK",
+    "library_candidate": "project-owned Feetech PING packet via pyserial",
     "query_requires_bytes": True,
     "torque_required": False,
     "movement_required": False,
     "homing_required": False,
 }
 IDENTITY_STATE_BLOCKERS = [
-    "No LeRobot or Feetech/scservo SDK is installed in the project environment.",
-    "No project-owned non-actuating identity/state query implementation exists yet.",
     "Feetech PING/READ DATA style identity/state discovery requires request bytes.",
-    "Expected SO-ARM servo ids, baudrate, and response schema have not been verified in project code.",
+    "The project-owned PING planner uses a Feetech-style status packet, but live response behavior has not been operator-approved or observed.",
+    "SO-ARM servo ids and bus baudrate still need operator confirmation before live query.",
     "The operator has not completed the wiring/power/pose checklist for query readiness.",
 ]
 IDENTITY_STATE_OPERATOR_PRECONDITIONS = [
@@ -240,6 +261,29 @@ def build_parser() -> argparse.ArgumentParser:
             "Write a Phase 5B identity/state query plan only. This does not "
             "open serial, send bytes, read bytes, enable torque, home, or move."
         ),
+    )
+    parser.add_argument(
+        "--enable-non-actuating-identity-query",
+        action="store_true",
+        help=(
+            "Prepare the Phase 5B non-actuating Feetech PING identity query. "
+            "Without --confirm-send-non-actuating-identity-query-bytes this "
+            "prints the exact checkpoint and does not open serial or send bytes."
+        ),
+    )
+    parser.add_argument(
+        "--confirm-send-non-actuating-identity-query-bytes",
+        action="store_true",
+        help=(
+            "Second explicit operator approval for sending the planned Feetech "
+            "PING request bytes. This still must not enable torque, home, or move."
+        ),
+    )
+    parser.add_argument(
+        "--identity-servo-id",
+        type=int,
+        default=1,
+        help="Servo id for the planned Feetech PING identity request; defaults to 1.",
     )
     parser.add_argument(
         "--serial-timeout-seconds",
@@ -602,8 +646,9 @@ def perform_serial_open_close_check(
             exit_code=0,
             status="serial_open_close_ready",
             next_operator_action=(
-                "Record this open/close evidence. Phase 5B may plan read-only "
-                "identity/state discovery, but this result does not validate protocol."
+                "Record this open/close evidence. Phase 5B may plan a "
+                "non-actuating identity checkpoint, but this result does not "
+                "validate protocol."
             ),
             serial_open_attempted=True,
             serial_opened=True,
@@ -666,8 +711,8 @@ def plan_identity_state_query(readiness: PermissionReadiness) -> IdentityStatePl
         exit_code=0,
         status="identity_state_query_planned_blocked",
         next_operator_action=(
-            "Complete the wiring checklist and choose a vetted non-actuating "
-            "Feetech/LeRobot identity-state query before any live Phase 5B run."
+            "Complete the wiring checklist and inspect the project-owned "
+            "non-actuating Feetech PING checkpoint before any live Phase 5B run."
         ),
         phase="5B",
         mode="identity_state_query_plan",
@@ -683,10 +728,81 @@ def plan_identity_state_query(readiness: PermissionReadiness) -> IdentityStatePl
         operator_preconditions=list(IDENTITY_STATE_OPERATOR_PRECONDITIONS),
         recommended_next_commands=[
             ".venv/bin/python scripts/probe_so_arm_readiness.py --plan-identity-state-query",
+            ".venv/bin/python scripts/probe_so_arm_readiness.py --enable-non-actuating-identity-query",
             ".venv/bin/python scripts/probe_so_arm_readiness.py --enable-serial-open-close-check",
         ],
         safety_flags=dict(SAFETY_FLAGS),
         limitations=PHASE_5B_PLAN_LIMITATIONS,
+    )
+
+
+def perform_non_actuating_identity_query_gate(
+    readiness: PermissionReadiness,
+    *,
+    servo_id: int = 1,
+    timeout_seconds: float = 0.5,
+    confirmed: bool = False,
+    serial_factory=None,
+) -> tuple[SOArmIdentityQueryResult, dict]:
+    plan = build_default_identity_query_plan(
+        servo_id=servo_id,
+        timeout_seconds=timeout_seconds,
+    )
+    plan_payload = plan.to_dict()
+    if not readiness.path_exists:
+        result = execute_confirmed_identity_query(
+            plan,
+            device_path=readiness.device_path,
+            serial_factory=lambda **_kwargs: None,
+            execution_approved=False,
+        )
+        return (
+            SOArmIdentityQueryResult(
+                **{
+                    **result.to_dict(),
+                    "status": "identity_query_device_path_missing",
+                    "error": "SO-ARM serial path is missing",
+                }
+            ),
+            plan_payload,
+        )
+    if not readiness.readable or not readiness.writable:
+        result = execute_confirmed_identity_query(
+            plan,
+            device_path=readiness.device_path,
+            serial_factory=lambda **_kwargs: None,
+            execution_approved=False,
+        )
+        return (
+            SOArmIdentityQueryResult(
+                **{
+                    **result.to_dict(),
+                    "status": "identity_query_permission_blocked",
+                    "error": "current session cannot read/write the SO-ARM serial path",
+                }
+            ),
+            plan_payload,
+        )
+    if not confirmed:
+        return (
+            execute_confirmed_identity_query(
+                plan,
+                device_path=readiness.device_path,
+                serial_factory=lambda **_kwargs: None,
+                execution_approved=False,
+            ),
+            plan_payload,
+        )
+
+    factory = serial_factory if serial_factory is not None else load_serial_factory()
+    return (
+        execute_confirmed_identity_query(
+            plan,
+            device_path=readiness.device_path,
+            serial_factory=factory,
+            execution_approved=True,
+        ),
+        plan_payload,
     )
 
 
@@ -697,6 +813,8 @@ def build_report(
     permission_readiness: PermissionReadiness | None = None,
     serial_open_close_result: SerialOpenCloseResult | None = None,
     identity_state_plan: IdentityStatePlanResult | None = None,
+    identity_query_result: SOArmIdentityQueryResult | None = None,
+    identity_query_plan_payload: dict | None = None,
 ) -> dict:
     report = {
         "schema_version": 1,
@@ -820,6 +938,61 @@ def build_report(
                 "limitations": identity_state_plan.limitations,
             }
         )
+    if identity_query_result is not None and identity_query_plan_payload is not None:
+        request = identity_query_plan_payload["request"]
+        protocol = identity_query_plan_payload["protocol_candidate"]
+        safety = identity_query_plan_payload["safety"]
+        report.update(
+            {
+                "phase": "5B",
+                "mode": (
+                    "non_actuating_identity_query"
+                    if identity_query_result.query_attempted
+                    else "identity_query_operator_checkpoint"
+                ),
+                "phase_5b_note": PHASE_5B_QUERY_NOTE,
+                "phase_5b_limitations": PHASE_5B_QUERY_LIMITATIONS,
+                "device_path": permission_readiness.device_path if permission_readiness else readiness.path,
+                "resolved_path": (
+                    permission_readiness.resolved_path
+                    if permission_readiness
+                    else readiness.resolved_target
+                ),
+                "serial_backend": "pyserial",
+                "serial_open_attempted": identity_query_result.serial_open_attempted,
+                "serial_opened": identity_query_result.serial_opened,
+                "serial_closed": identity_query_result.serial_closed,
+                "query_attempted": identity_query_result.query_attempted,
+                "query_name": identity_query_result.query_name,
+                "query_is_passive": identity_query_result.query_is_passive,
+                "planned_request_bytes_hex": request["request_bytes_hex"],
+                "planned_request_bytes_to_write": request["bytes_to_write"],
+                "identity_query_bytes_written": identity_query_result.identity_query_bytes_written,
+                "identity_response_bytes_read": identity_query_result.identity_response_bytes_read,
+                "state_query_bytes_written": identity_query_result.state_query_bytes_written,
+                "state_response_bytes_read": identity_query_result.state_response_bytes_read,
+                "serial_commands_sent": identity_query_result.serial_commands_sent,
+                "identity_detected": identity_query_result.identity_detected,
+                "identity_summary": identity_query_result.identity_summary,
+                "state_detected": identity_query_result.state_detected,
+                "state_summary": identity_query_result.state_summary,
+                "timeout_seconds": request["timeout_seconds"],
+                "protocol_candidate": protocol["name"],
+                "library_candidate": protocol["library_candidate"],
+                "torque_required": safety["torque_required"],
+                "movement_required": safety["movement_required"],
+                "homing_required": safety["homing_required"],
+                "operator_checkpoint_command": identity_query_plan_payload[
+                    "operator_checkpoint_command"
+                ],
+                "status": identity_query_result.status,
+                "exit_code": identity_query_result.exit_code,
+                "safety_flags": dict(identity_query_result.safety_flags),
+                "limitations": list(identity_query_result.limitations)
+                + [PHASE_5B_QUERY_LIMITATIONS],
+                "serial_error": identity_query_result.error,
+            }
+        )
     return report
 
 
@@ -849,13 +1022,17 @@ def render_markdown(report: dict) -> str:
     is_phase_2 = report["phase"] == "phase_2_permissions_operator_readiness"
     is_phase_5a = report["phase"] == "5A"
     is_phase_5b = report["phase"] == "5B"
+    is_identity_query_gate = report.get("mode") in {
+        "identity_query_operator_checkpoint",
+        "non_actuating_identity_query",
+    }
     title = "# SO-ARM Readiness Phase 1"
     if is_phase_2:
         title = "# SO-ARM Readiness Phase 2"
     if is_phase_5a:
         title = "# SO-ARM Readiness Phase 5A"
     if is_phase_5b:
-        title = "# SO-ARM Readiness Phase 5B Plan"
+        title = "# SO-ARM Readiness Phase 5B Identity Query Gate" if is_identity_query_gate else "# SO-ARM Readiness Phase 5B Plan"
     phase_note = report.get(
         "phase_5b_note",
         report.get(
@@ -948,7 +1125,7 @@ def render_markdown(report: dict) -> str:
                 "",
             ]
         )
-    if is_phase_5b:
+    if is_phase_5b and not is_identity_query_gate:
         lines.extend(
             [
                 "## Identity/State Query Plan",
@@ -981,6 +1158,44 @@ def render_markdown(report: dict) -> str:
                 "",
             ]
         )
+    if is_identity_query_gate:
+        lines.extend(
+            [
+                "## Non-Actuating Identity Query Gate",
+                "",
+                "This report distinguishes request/response identity probing from passive open/close.",
+                f"- Mode: `{report['mode']}`",
+                f"- Device path: `{report['device_path']}`",
+                f"- Resolved path: `{report['resolved_path'] or 'n/a'}`",
+                f"- Protocol candidate: `{report['protocol_candidate']}`",
+                f"- Library path: `{report['library_candidate']}`",
+                f"- Query name: `{report['query_name']}`",
+                f"- Query is passive: {report['query_is_passive']}",
+                f"- Planned request bytes: `{report['planned_request_bytes_hex']}`",
+                f"- Serial open attempted: {report['serial_open_attempted']}",
+                f"- Serial opened: {report['serial_opened']}",
+                f"- Serial closed: {report['serial_closed']}",
+                f"- Query attempted: {report['query_attempted']}",
+                f"- Serial commands sent: {report['serial_commands_sent']}",
+                f"- Identity query bytes written: `{report['identity_query_bytes_written']}`",
+                f"- Identity response bytes read: `{report['identity_response_bytes_read']}`",
+                f"- Identity detected: {report['identity_detected']}",
+                f"- State detected: {report['state_detected']}",
+                f"- Torque required: {report['torque_required']}",
+                f"- Movement required: {report['movement_required']}",
+                f"- Homing required: {report['homing_required']}",
+                f"- Serial error: `{report['serial_error'] or 'n/a'}`",
+                "",
+                "Operator checkpoint command:",
+                "",
+                f"- `{report['operator_checkpoint_command']}`",
+                "",
+                "## Phase 5B Limitations",
+                "",
+                report["phase_5b_limitations"],
+                "",
+            ]
+        )
     lines.extend(
         [
         "## Groups",
@@ -1004,9 +1219,13 @@ def render_console_report(
     permission_readiness: PermissionReadiness | None = None,
     serial_open_close_result: SerialOpenCloseResult | None = None,
     identity_state_plan: IdentityStatePlanResult | None = None,
+    identity_query_result: SOArmIdentityQueryResult | None = None,
+    identity_query_plan_payload: dict | None = None,
 ) -> str:
     safety_flags = (
-        identity_state_plan.safety_flags
+        identity_query_result.safety_flags
+        if identity_query_result is not None
+        else identity_state_plan.safety_flags
         if identity_state_plan is not None
         else serial_open_close_result.safety_flags
         if serial_open_close_result is not None
@@ -1022,6 +1241,13 @@ def render_console_report(
     if identity_state_plan is not None:
         phase_note = PHASE_5B_PLAN_NOTE
         no_io_note = "Planning only. No serial port opened. No bytes sent. No bytes read."
+    if identity_query_result is not None:
+        phase_note = PHASE_5B_QUERY_NOTE
+        no_io_note = (
+            "Operator checkpoint only. No serial port opened. No bytes sent. No bytes read."
+            if not identity_query_result.query_attempted
+            else "Confirmed non-actuating identity request. No torque, homing, or movement."
+        )
     lines = [
         "SO-ARM 101 readiness probe",
         "",
@@ -1110,6 +1336,31 @@ def render_console_report(
                 PHASE_5B_PLAN_LIMITATIONS,
             ]
         )
+    if identity_query_result is not None and identity_query_plan_payload is not None:
+        request = identity_query_plan_payload["request"]
+        lines.extend(
+            [
+                "",
+                "Phase 5B non-actuating identity query gate",
+                f"Query name: {identity_query_result.query_name}",
+                f"Query is passive: {identity_query_result.query_is_passive}",
+                f"Planned request bytes: {request['request_bytes_hex']}",
+                f"Serial open attempted: {identity_query_result.serial_open_attempted}",
+                f"Serial opened: {identity_query_result.serial_opened}",
+                f"Serial closed: {identity_query_result.serial_closed}",
+                f"Query attempted: {identity_query_result.query_attempted}",
+                f"Serial commands sent: {identity_query_result.serial_commands_sent}",
+                f"Identity query bytes written: {identity_query_result.identity_query_bytes_written}",
+                f"Identity response bytes read: {identity_query_result.identity_response_bytes_read}",
+                f"Identity detected: {identity_query_result.identity_detected}",
+                f"State detected: {identity_query_result.state_detected}",
+                f"Serial error: {identity_query_result.error or 'n/a'}",
+                "Operator checkpoint command:",
+                f"- {identity_query_plan_payload['operator_checkpoint_command']}",
+                "",
+                PHASE_5B_QUERY_LIMITATIONS,
+            ]
+        )
     if phase_status.status == "fail_closed":
         lines.extend(
             [
@@ -1127,10 +1378,21 @@ def render_console_report(
                     "identity/state readiness and did not open serial."
                     if identity_state_plan is not None
                     else (
-                        "Opt-in acknowledged: this implementation only attempted "
-                        "serial open/close and did not read or write bytes."
-                        if serial_open_close_result is not None
-                        else "Opt-in acknowledged: this implementation only checked path metadata."
+                        "Opt-in acknowledged: this implementation prepared the "
+                        "identity checkpoint and did not send bytes."
+                        if identity_query_result is not None
+                        and not identity_query_result.query_attempted
+                        else (
+                            "Opt-in acknowledged: this implementation sent only "
+                            "the confirmed non-actuating identity request bytes."
+                            if identity_query_result is not None
+                            else (
+                                "Opt-in acknowledged: this implementation only attempted "
+                                "serial open/close and did not read or write bytes."
+                                if serial_open_close_result is not None
+                                else "Opt-in acknowledged: this implementation only checked path metadata."
+                            )
+                        )
                     )
                 ),
             ]
@@ -1157,6 +1419,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     permission_readiness = None
     serial_open_close_result = None
     identity_state_plan = None
+    identity_query_result = None
+    identity_query_plan_payload = None
     if args.plan_identity_state_query:
         permission_readiness = inspect_permission_readiness(args.device)
         readiness = permission_readiness.path_metadata
@@ -1165,6 +1429,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_code=identity_state_plan.exit_code,
             status=identity_state_plan.status,
             next_operator_action=identity_state_plan.next_operator_action,
+        )
+    elif args.enable_non_actuating_identity_query:
+        permission_readiness = inspect_permission_readiness(args.device)
+        readiness = permission_readiness.path_metadata
+        identity_query_result, identity_query_plan_payload = perform_non_actuating_identity_query_gate(
+            permission_readiness,
+            servo_id=args.identity_servo_id,
+            timeout_seconds=args.serial_timeout_seconds,
+            confirmed=args.confirm_send_non_actuating_identity_query_bytes,
+        )
+        phase_status = Phase1Status(
+            exit_code=identity_query_result.exit_code,
+            status=identity_query_result.status,
+            next_operator_action=(
+                "Complete the wiring checklist, inspect the planned bytes, and "
+                "run the checkpoint command only with explicit operator approval."
+                if not identity_query_result.query_attempted
+                else "Record the identity response evidence. Do not proceed to torque or motion."
+            ),
         )
     elif args.enable_serial_open_close_check:
         permission_readiness = inspect_permission_readiness(args.device)
@@ -1194,6 +1477,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         or args.enable_permission_check
         or args.enable_serial_open_close_check
         or args.plan_identity_state_query
+        or args.enable_non_actuating_identity_query
     ):
         report = build_report(
             readiness,
@@ -1201,6 +1485,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             permission_readiness=permission_readiness,
             serial_open_close_result=serial_open_close_result,
             identity_state_plan=identity_state_plan,
+            identity_query_result=identity_query_result,
+            identity_query_plan_payload=identity_query_plan_payload,
         )
         report_paths = write_reports(report, Path(args.output_dir))
     print(
@@ -1211,6 +1497,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             permission_readiness=permission_readiness,
             serial_open_close_result=serial_open_close_result,
             identity_state_plan=identity_state_plan,
+            identity_query_result=identity_query_result,
+            identity_query_plan_payload=identity_query_plan_payload,
         ),
         end="",
     )

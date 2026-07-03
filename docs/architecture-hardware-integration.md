@@ -198,17 +198,17 @@ record returned evidence.
 
 ## Identity/State Query Planning
 
-Phase 5B currently produces an identity/state query plan instead of executing a
-live query:
+Phase 5B produces an identity/state query plan and a blocked-by-default operator
+checkpoint for a future non-actuating identity query:
 
 ```bash
 .venv/bin/python scripts/probe_so_arm_readiness.py --plan-identity-state-query
 ```
 
-The likely protocol path is the Feetech serial bus servo protocol. The likely
-library path is a future LeRobot Feetech SDK or scservo-compatible SDK
-integration. The current project environment does not include LeRobot,
-Feetech, or scservo SDK packages.
+The selected protocol path is a project-owned Feetech-style PING packet planner
+using pyserial as the future transport. The project still does not import
+LeRobot, Feetech, or scservo control packages for this gate because those paths
+include broader motor-control surfaces than this checkpoint needs.
 
 Feetech PING and READ DATA style identity/state discovery are request/response
 operations. They require bytes to be sent before bytes can be read, so they
@@ -216,12 +216,28 @@ must not be described as passive read-only serial inspection. A future live
 identity/state gate must report the query name, whether it is passive,
 request/response byte counts, timeout, parsed response, and all safety flags.
 
-The planner reports `execution_available: false` until the project has:
+The default planned PING request for servo id `1` is:
 
-- a vetted non-actuating query implementation
-- expected SO-ARM servo ids, baudrate, and response schema
-- a reviewed parser for expected and unexpected responses
-- completed operator wiring and arm readiness checklist
+```text
+ff ff 01 02 01 fb
+```
+
+The checkpoint command is:
+
+```bash
+.venv/bin/python scripts/probe_so_arm_readiness.py --enable-non-actuating-identity-query
+```
+
+It prints the planned request bytes and refuses live I/O. The future approved
+command is intentionally explicit:
+
+```bash
+.venv/bin/python scripts/probe_so_arm_readiness.py --enable-non-actuating-identity-query --confirm-send-non-actuating-identity-query-bytes --identity-servo-id 1 --serial-timeout-seconds 0.5
+```
+
+That approved command must only be run after the wiring and arm readiness
+checklist is complete. It has not been run in the protocol-blocker resolution
+package.
 
 This planning layer still does not append events, update dashboard artifacts, or
 write replay outputs directly. It returns evidence that the orchestrator can
@@ -425,12 +441,11 @@ The first SO-ARM 101 serial open/close phase should require flags equivalent to:
 This opens and closes the serial path only. It sends no bytes, reads no bytes,
 and does not validate protocol or identity.
 
-The later SO-ARM 101 serial identity/state phase should require flags
-equivalent to:
+The later SO-ARM 101 serial identity phase should require flags equivalent to:
 
 ```text
---hardware
---probe-only
+--enable-non-actuating-identity-query
+--confirm-send-non-actuating-identity-query-bytes
 ```
 
 Before that phase, Phase 1 only allows:
@@ -443,8 +458,9 @@ This records metadata for
 `/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0`, which resolves to the CH340
 path `/dev/ttyUSB0` on Valera. The identity basis is operator-confirmed SO-101
 motor kit provenance. Phase 4 is a dry-run command envelope with no serial
-open. Phase 5 is protocol/library discovery before any read-only serial
-identity/state probe.
+open. Phase 5A is serial open/close. Phase 5B is protocol/library discovery and
+the explicit non-actuating PING checkpoint before any identity response is
+requested.
 
 The first motion phase should require flags equivalent to:
 

@@ -18,6 +18,10 @@ def test_wiring_readiness_checklist_covers_operator_safety_boundaries():
         "confirm no human fingers are inside pinch or motion zones",
         "confirm torque and motion phases have not started yet",
         "--plan-identity-state-query",
+        "--enable-non-actuating-identity-query",
+        "--confirm-send-non-actuating-identity-query-bytes",
+        "ff ff 01 02 01 fb",
+        "not passive serial inspection",
         "--enable-serial-open-close-check",
     ]
     for phrase in required_phrases:
