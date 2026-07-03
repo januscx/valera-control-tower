@@ -185,7 +185,8 @@ Phase 5A evidence includes:
 - safety flags and limitations
 
 The implementation uses a lazy pyserial backend only inside the explicit Phase
-5A gate. If pyserial is unavailable, the result fails closed with
+5A gate. `pyserial` is declared in `requirements-dev.txt` for local hardware
+verification. If pyserial is unavailable, the result fails closed with
 `serial_backend_missing`. The project should not bypass that with raw host file
 opens.
 
