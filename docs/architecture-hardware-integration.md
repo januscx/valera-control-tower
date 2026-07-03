@@ -97,6 +97,8 @@ The system separates three concepts:
 - Command/request: what the orchestrator asks an adapter to do.
 - Adapter result: what the adapter reports back.
 - Event: an immutable fact recorded in the task log.
+- Dry-run command envelope: a structured preview of intended arm action before
+  any future execution path exists.
 
 Example:
 
@@ -109,6 +111,54 @@ Orchestrator
 
 This distinction prevents dashboards and replays from showing requested work as
 completed work.
+
+## Dry-run Arm Command Envelope
+
+Phase 4 adds a planning layer between mission intent and future adapter
+execution. `ArmCommandEnvelope` represents intended arm actions as project-owned
+data, and `dry_run_arm_command()` validates that intent against adapter
+capabilities and safety rules.
+
+Supported command intents are:
+
+- `NOOP`
+- `HOME`
+- `MOVE_TO_POSE`
+- `OPEN_GRIPPER`
+- `CLOSE_GRIPPER`
+- `HOLD_POSITION`
+
+These are not hardware commands. They do not map to LeRobot calls, serial
+payloads, actuator IDs, torque/current settings, joint angles, or motor units.
+Targets are intentionally abstract, such as named poses, named home profiles,
+named gripper intents, or non-executable duration hints.
+
+Validation distinguishes schema validity, safety validity, execution
+availability, and dry-run acceptability. A safe command intent can be accepted
+as a dry-run preview while still returning `executable_now: false`. The result
+also records required capabilities, unavailable capabilities, safety
+preconditions, limitations, next actions, and safety flags.
+
+The envelope checks adapter capabilities through `ArmAdapter.capabilities()`.
+`MetadataOnlySOArmAdapter` continues to expose no movement, torque, or read-state
+capability. `SimArmAdapter` may support simulation-specific behavior elsewhere,
+but the Phase 4 dry-run envelope still does not execute commands.
+
+Dry-run results are evidence-friendly JSON payloads for future orchestrator
+events, replay, dashboard, or enterprise projection. The dry-run layer itself
+does not append events, update dashboard artifacts, write replay outputs, or
+call enterprise integrations.
+
+The CLI preview is safe and output-only:
+
+```bash
+.venv/bin/python scripts/dry_run_arm_command.py --adapter sim --command noop --reason "verification"
+.venv/bin/python scripts/dry_run_arm_command.py --adapter metadata-only-so-arm --command open-gripper --reason "operator preview"
+```
+
+It has no live execution flag. It must not open serial, send bytes, enable
+torque, command movement, call actuator APIs, or import/call LeRobot
+hardware-control APIs.
 
 ## Adapter Failure Semantics
 
@@ -193,6 +243,18 @@ LeRobot, pyserial, serial device paths, or hardware-control libraries directly.
 The metadata-only adapter is still not protocol discovery: it does not open
 serial, send bytes, enable torque, command movement, or read actuator state.
 
+The Phase 4 dry-run command envelope is also present:
+
+- `ArmCommand`, `ArmCommandEnvelope`, `ArmCommandType`, `ArmCommandValidation`,
+  `ArmCommandDryRunResult`, and `ArmCommandSafetyPrecondition` types.
+- validation for command id, command type, reason, requester, target shape, and
+  dry-run-only mode.
+- safety rejection for raw serial bytes, low-level actuator payloads,
+  torque/current requests, or movement execution requests.
+- evidence-friendly JSON output with all hardware safety flags false.
+- no event log, replay, dashboard, enterprise, serial, torque, motion, or
+  LeRobot side effects.
+
 ## SO-ARM 101 Boundary
 
 The SO-ARM 101 integration should start as probe-only.
@@ -203,12 +265,14 @@ Initial allowed behavior:
 - report configured arm identity through project-owned adapter types
 - report metadata-only capabilities
 - report filesystem/device permission metadata
+- preview intended arm commands through Phase 4 dry-run validation only
 
 Initial disallowed behavior:
 
-- serial open during Phase 1/2/3 readiness
-- serial bytes during Phase 1/2/3 readiness
-- protocol reads during Phase 1/2/3 readiness
+- serial open during Phase 1/2/3/4 readiness and dry-run previews
+- serial bytes during Phase 1/2/3/4 readiness and dry-run previews
+- protocol reads during Phase 1/2/3/4 readiness and dry-run previews
+- command execution during Phase 4 dry-run previews
 - torque enable
 - movement commands
 - homing commands

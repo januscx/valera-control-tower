@@ -267,12 +267,42 @@ The orchestrator must keep using adapter interfaces only. It must not import
 LeRobot, pyserial, serial handles, device paths, or hardware-control APIs
 directly.
 
-Phase 4: dry-run arm command envelope. This is the next recommended
-implementation package. Define the command schema for intended arm actions and
-validate it in dry-run mode only, using adapter-compatible command planning,
-structured mission/event preview, and dashboard/evidence-friendly output.
-Phase 4 must not open serial, enable torque, command movement, send bytes, or
-call hardware-control APIs.
+Phase 4: dry-run arm command envelope. The project now has project-owned
+`ArmCommand`, `ArmCommandEnvelope`, and `dry_run_arm_command()` models for
+intended arm actions. Supported command intents are `NOOP`, `HOME`,
+`MOVE_TO_POSE`, `OPEN_GRIPPER`, `CLOSE_GRIPPER`, and `HOLD_POSITION`.
+
+Phase 4 validation checks command schema, safe target shape, dry-run-only mode,
+adapter identity, adapter capabilities, safety preconditions, and low-level
+payload exclusions. Targets remain abstract: named poses, named home profiles,
+named gripper width/force intents, or duration hints only. They must not include
+raw joint angles, servo IDs, torque/current values, serial bytes, or actuator
+payloads.
+
+Dry-run results are JSON-serializable and evidence-friendly. They include the
+command id, command type, adapter id, adapter mode, dry-run status, blocked
+reason, required and unavailable capabilities, safety preconditions,
+limitations, and safety flags. The dry-run layer does not append events, write
+replay artifacts, update dashboard output, or call enterprise integrations; the
+orchestrator may choose to record the returned evidence later.
+
+The safe CLI preview is:
+
+```bash
+.venv/bin/python scripts/dry_run_arm_command.py --adapter sim --command noop --reason "verification"
+.venv/bin/python scripts/dry_run_arm_command.py --adapter sim --command home --reason "operator preview"
+.venv/bin/python scripts/dry_run_arm_command.py --adapter metadata-only-so-arm --command noop --reason "verification"
+.venv/bin/python scripts/dry_run_arm_command.py --adapter metadata-only-so-arm --command open-gripper --reason "operator preview"
+```
+
+Phase 4 does not execute accepted commands. `SimArmAdapter` may expose simulated
+motion capability for existing simulation flows, but Phase 4 still returns
+`executable_now: false`. `MetadataOnlySOArmAdapter` exposes no movement,
+torque, or read-state capability, so motion-like intents list `can_move` as
+unavailable while remaining valid as dry-run intent when the command is safe.
+
+Phase 4 must not open serial, enable torque, command movement, send bytes, call
+hardware-control APIs, or import/call LeRobot hardware-control code.
 
 Phase 5: read-only serial identity/state gate. This is the first phase where a
 serial port may possibly be opened, and only if the selected protocol/library
@@ -298,7 +328,7 @@ Probe-only:
 - [x] Phase 1 metadata-only readiness
 - [x] Phase 2 permissions/operator readiness
 - [x] Phase 3 metadata-only SO-ARM adapter skeleton
-- [ ] Phase 4 dry-run command envelope
+- [x] Phase 4 dry-run command envelope
 - [ ] Phase 5 identify required runtime/library
 - [ ] Phase 5 read model/config if possible
 - [ ] Phase 5 read joint/state if possible
@@ -328,7 +358,6 @@ Probe-only:
 
 ## Follow-up PR slices
 
-- PR Phase 4: dry-run arm command envelope
 - PR Phase 5: read-only SO-ARM serial identity/state gate
 - PR Phase 6: torque-disabled verification
 - PR Phase 7: controlled motion safety plan / first supervised movement
