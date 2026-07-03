@@ -527,6 +527,103 @@ def test_cli_5A_uses_mocked_backend(tmp_path, monkeypatch):
     assert report["serial_bytes_read"] == 0
 
 
+def test_identity_state_plan_is_deterministic_and_non_executing(tmp_path):
+    fake_device = tmp_path / "ttyUSB0"
+    fake_device.write_text("", encoding="utf-8")
+    readiness = probe.inspect_permission_readiness(str(fake_device))
+
+    first = probe.plan_identity_state_query(readiness)
+    second = probe.plan_identity_state_query(readiness)
+
+    assert first == second
+    assert first.phase == "5B"
+    assert first.mode == "identity_state_query_plan"
+    assert first.execution_available is False
+    assert first.protocol_candidate == "Feetech serial bus servo protocol"
+    assert first.library_candidate == "LeRobot Feetech SDK / scservo-compatible SDK"
+    assert first.query_requires_bytes is True
+    assert first.torque_required is False
+    assert first.movement_required is False
+    assert first.homing_required is False
+    assert first.safe_to_execute_now is False
+    assert first.safety_flags == probe.SAFETY_FLAGS
+    assert first.recommended_next_commands == [
+        ".venv/bin/python scripts/probe_so_arm_readiness.py --plan-identity-state-query",
+        ".venv/bin/python scripts/probe_so_arm_readiness.py --enable-serial-open-close-check",
+    ]
+
+
+def test_identity_state_plan_report_is_json_serializable(tmp_path):
+    fake_device = tmp_path / "ttyUSB0"
+    fake_device.write_text("", encoding="utf-8")
+    readiness = probe.inspect_permission_readiness(str(fake_device))
+    plan = probe.plan_identity_state_query(readiness)
+    status = probe.Phase1Status(
+        exit_code=plan.exit_code,
+        status=plan.status,
+        next_operator_action=plan.next_operator_action,
+    )
+
+    report = probe.build_report(
+        readiness.path_metadata,
+        status,
+        permission_readiness=readiness,
+        identity_state_plan=plan,
+    )
+    encoded = json.dumps(report, sort_keys=True)
+    markdown = probe.render_markdown(report)
+
+    assert '"phase": "5B"' in encoded
+    assert report["execution_available"] is False
+    assert report["query_requires_bytes"] is True
+    assert report["safety_flags"]["serial_opened"] is False
+    assert report["operator_preconditions"]
+    assert "SO-ARM Readiness Phase 5B Plan" in markdown
+    assert "Identity/state query is not executed" in markdown
+
+
+def test_cli_identity_state_plan_writes_report_without_serial_open(tmp_path, monkeypatch):
+    fake_device = tmp_path / "ttyUSB0"
+    fake_device.write_text("", encoding="utf-8")
+    output_dir = tmp_path / "reports"
+
+    def forbidden_serial_loader():
+        raise AssertionError("planner must not load serial")
+
+    monkeypatch.setattr(probe, "load_serial_factory", forbidden_serial_loader)
+    exit_code = probe.main(
+        [
+            "--plan-identity-state-query",
+            "--device",
+            str(fake_device),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+    report = json.loads((output_dir / "latest.json").read_text(encoding="utf-8"))
+
+    assert exit_code == 0
+    assert report["phase"] == "5B"
+    assert report["mode"] == "identity_state_query_plan"
+    assert report["execution_available"] is False
+    assert report["safe_to_execute_now"] is False
+    assert report["safety_flags"] == probe.SAFETY_FLAGS
+
+
+def test_help_text_exposes_identity_state_planning_without_live_execution():
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "--plan-identity-state-query" in result.stdout
+    assert "--enable-identity-state-query" not in result.stdout
+    assert "--execute" not in result.stdout
+
+
 def test_cli_permission_check_writes_operator_readiness_fields(tmp_path):
     fake_device = tmp_path / "fake-so-arm-controller"
     fake_device.write_text("", encoding="utf-8")

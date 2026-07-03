@@ -341,11 +341,69 @@ safety, or actuator readiness. It must not send bytes, read bytes, enable
 torque, command movement, call actuator APIs, execute dry-run arm commands, or
 import/call LeRobot hardware-control code.
 
-Phase 5B: read-only serial identity/state gate. This is separately planned
-future work, and only if the selected protocol/library supports safe read-only
-identity or state discovery. Phase 5B must not send movement commands, enable
-torque, home the arm, or write to the serial port unless a safe identity
-protocol plan explicitly justifies the write and receives separate review.
+Phase 5B: identity/state query planning and wiring readiness. The current safe
+implementation is a planner, not a live identity/state query:
+
+```bash
+.venv/bin/python scripts/probe_so_arm_readiness.py --plan-identity-state-query
+```
+
+The project found the likely protocol path to be the Feetech serial bus servo
+protocol, with a future LeRobot Feetech SDK or scservo-compatible SDK as the
+likely library path. Feetech PING and READ DATA style discovery are
+request/response operations: they require bytes to be sent before response bytes
+can be read. They are not passive serial reads.
+
+The planner reports:
+
+- `phase: 5B`
+- `mode: identity_state_query_plan`
+- `execution_available: false`
+- protocol and library candidates
+- `query_requires_bytes: true`
+- `torque_required: false`
+- `movement_required: false`
+- `homing_required: false`
+- blockers, operator preconditions, recommended commands, and safety flags
+
+No live identity/state query is implemented yet because the repo does not have a
+vetted non-actuating query implementation, installed LeRobot/Feetech SDK, known
+servo id/baudrate/response schema, or completed physical wiring checklist. A
+future live Phase 5B gate must count all bytes written/read and must not call the
+query passive if it sends request bytes.
+
+Phase 5B must not send movement commands, enable torque, home the arm, or write
+to the serial port unless a safe identity protocol plan explicitly justifies the
+write and receives separate review.
+
+### SO-ARM wiring and arm readiness handoff
+
+Before any live identity/state query, the operator should physically inspect the
+arm and wiring:
+
+- [ ] physically label the CH340 USB adapter and cable as the SO-ARM controller
+      path for `/dev/ttyUSB0`
+- [ ] confirm arm power state is intentional and documented
+- [ ] confirm controller board is connected to the correct servo bus
+- [ ] confirm servo cable orientation against the board and servo markings
+- [ ] confirm no loose wires, partially seated connectors, or strained cables
+- [ ] confirm the arm is mechanically supported
+- [ ] confirm gripper and links are clear of obstacles
+- [ ] confirm emergency power cut is available and reachable
+- [ ] confirm tracks/base are disabled or off-ground if relevant
+- [ ] confirm no human fingers are inside pinch or motion zones
+- [ ] confirm torque and motion phases have not started yet
+
+Safe next commands:
+
+```bash
+.venv/bin/python scripts/probe_so_arm_readiness.py --plan-identity-state-query
+.venv/bin/python scripts/probe_so_arm_readiness.py --enable-serial-open-close-check
+```
+
+Still forbidden: torque enablement, homing, movement, gripper movement, raw
+actuator commands, LeRobot hardware-control calls, and unreviewed protocol
+writes.
 
 Phase 6: torque-disabled verification. Verify that the arm remains
 torque-disabled before later motion planning. Phase 6 still allows no motion and
@@ -366,7 +424,7 @@ Probe-only:
 - [x] Phase 3 metadata-only SO-ARM adapter skeleton
 - [x] Phase 4 dry-run command envelope
 - [x] Phase 5A serial open/close gate
-- [ ] Phase 5 identify required runtime/library
+- [x] Phase 5 identify required runtime/library
 - [ ] Phase 5 read model/config if possible
 - [ ] Phase 5 read joint/state if possible
 - [ ] Phase 6 verify torque disabled if applicable

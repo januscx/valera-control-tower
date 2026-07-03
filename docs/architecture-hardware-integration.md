@@ -196,9 +196,36 @@ hardware-control APIs. It must not append events, update dashboard artifacts, or
 write replay outputs directly; the orchestrator can later decide whether to
 record returned evidence.
 
-Phase 5B should be planned separately as a read-only identity/state query after
-reviewing whether the protocol/library can perform discovery without torque,
-homing, movement, or unsafe writes.
+## Identity/State Query Planning
+
+Phase 5B currently produces an identity/state query plan instead of executing a
+live query:
+
+```bash
+.venv/bin/python scripts/probe_so_arm_readiness.py --plan-identity-state-query
+```
+
+The likely protocol path is the Feetech serial bus servo protocol. The likely
+library path is a future LeRobot Feetech SDK or scservo-compatible SDK
+integration. The current project environment does not include LeRobot,
+Feetech, or scservo SDK packages.
+
+Feetech PING and READ DATA style identity/state discovery are request/response
+operations. They require bytes to be sent before bytes can be read, so they
+must not be described as passive read-only serial inspection. A future live
+identity/state gate must report the query name, whether it is passive,
+request/response byte counts, timeout, parsed response, and all safety flags.
+
+The planner reports `execution_available: false` until the project has:
+
+- a vetted non-actuating query implementation
+- expected SO-ARM servo ids, baudrate, and response schema
+- a reviewed parser for expected and unexpected responses
+- completed operator wiring and arm readiness checklist
+
+This planning layer still does not append events, update dashboard artifacts, or
+write replay outputs directly. It returns evidence that the orchestrator can
+record later.
 
 ## Adapter Failure Semantics
 
