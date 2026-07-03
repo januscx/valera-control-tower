@@ -103,7 +103,7 @@ def test_arm_identity_state_readiness_can_plan_without_execution():
         mode="identity_state_query_plan",
         execution_available=False,
         protocol_candidate="Feetech serial bus servo protocol",
-        library_candidate="LeRobot Feetech SDK / scservo-compatible SDK",
+        library_candidate="project-owned Feetech PING packet via pyserial",
         query_requires_bytes=True,
         torque_required=False,
         movement_required=False,

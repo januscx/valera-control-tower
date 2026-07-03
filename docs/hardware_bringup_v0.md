@@ -342,17 +342,25 @@ torque, command movement, call actuator APIs, execute dry-run arm commands, or
 import/call LeRobot hardware-control code.
 
 Phase 5B: identity/state query planning and wiring readiness. The current safe
-implementation is a planner, not a live identity/state query:
+implementation includes a planner and an operator checkpoint for a future
+non-actuating Feetech-style PING identity query:
 
 ```bash
 .venv/bin/python scripts/probe_so_arm_readiness.py --plan-identity-state-query
 ```
 
 The project found the likely protocol path to be the Feetech serial bus servo
-protocol, with a future LeRobot Feetech SDK or scservo-compatible SDK as the
-likely library path. Feetech PING and READ DATA style discovery are
-request/response operations: they require bytes to be sent before response bytes
-can be read. They are not passive serial reads.
+protocol. The repo now owns a narrow PING packet planner instead of importing a
+LeRobot hardware-control path. The planned default query for servo id `1` is:
+
+```text
+ff ff 01 02 01 fb
+```
+
+This is a Feetech-style PING instruction packet. It is intended to request a
+status response and does not require torque, homing, calibration, or movement.
+It is still request/response: bytes must be sent before response bytes can be
+read. It is not passive serial inspection.
 
 The planner reports:
 
@@ -366,11 +374,23 @@ The planner reports:
 - `homing_required: false`
 - blockers, operator preconditions, recommended commands, and safety flags
 
-No live identity/state query is implemented yet because the repo does not have a
-vetted non-actuating query implementation, installed LeRobot/Feetech SDK, known
-servo id/baudrate/response schema, or completed physical wiring checklist. A
-future live Phase 5B gate must count all bytes written/read and must not call the
-query passive if it sends request bytes.
+The operator checkpoint command prints the exact planned request and refuses to
+send bytes unless a second explicit confirmation flag is present:
+
+```bash
+.venv/bin/python scripts/probe_so_arm_readiness.py --enable-non-actuating-identity-query
+```
+
+The exact future approval command, after physical wiring inspection, is:
+
+```bash
+.venv/bin/python scripts/probe_so_arm_readiness.py --enable-non-actuating-identity-query --confirm-send-non-actuating-identity-query-bytes --identity-servo-id 1 --serial-timeout-seconds 0.5
+```
+
+That approved command has not been run yet. If it is run later, the report must
+count `identity_query_bytes_written`, `identity_response_bytes_read`, timeout,
+parsed status response, and safety flags. It must not call the query passive if
+it sends request bytes.
 
 Phase 5B must not send movement commands, enable torque, home the arm, or write
 to the serial port unless a safe identity protocol plan explicitly justifies the
@@ -398,8 +418,14 @@ Safe next commands:
 
 ```bash
 .venv/bin/python scripts/probe_so_arm_readiness.py --plan-identity-state-query
+.venv/bin/python scripts/probe_so_arm_readiness.py --enable-non-actuating-identity-query
 .venv/bin/python scripts/probe_so_arm_readiness.py --enable-serial-open-close-check
 ```
+
+Next physical operator action: inspect the wires and arm against the checklist
+above. If everything is ready, approve exactly the non-actuating identity query
+checkpoint command shown in this section. Do not run torque, homing, motion,
+gripper, demo, or LeRobot control commands.
 
 Still forbidden: torque enablement, homing, movement, gripper movement, raw
 actuator commands, LeRobot hardware-control calls, and unreviewed protocol
@@ -425,6 +451,7 @@ Probe-only:
 - [x] Phase 4 dry-run command envelope
 - [x] Phase 5A serial open/close gate
 - [x] Phase 5 identify required runtime/library
+- [x] Phase 5B protocol identity blocker resolved with checkpoint plan
 - [ ] Phase 5 read model/config if possible
 - [ ] Phase 5 read joint/state if possible
 - [ ] Phase 6 verify torque disabled if applicable
@@ -454,7 +481,7 @@ Probe-only:
 ## Follow-up PR slices
 
 - PR Phase 5A: SO-ARM serial open/close gate
-- PR Phase 5B: read-only SO-ARM serial identity/state gate
+- PR Phase 5B: non-actuating SO-ARM PING identity checkpoint
 - PR Phase 6: torque-disabled verification
 - PR Phase 7: controlled motion safety plan / first supervised movement
 - tracked base remains separate and probe-only

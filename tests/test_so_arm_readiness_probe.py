@@ -540,7 +540,7 @@ def test_identity_state_plan_is_deterministic_and_non_executing(tmp_path):
     assert first.mode == "identity_state_query_plan"
     assert first.execution_available is False
     assert first.protocol_candidate == "Feetech serial bus servo protocol"
-    assert first.library_candidate == "LeRobot Feetech SDK / scservo-compatible SDK"
+    assert first.library_candidate == "project-owned Feetech PING packet via pyserial"
     assert first.query_requires_bytes is True
     assert first.torque_required is False
     assert first.movement_required is False
@@ -549,6 +549,7 @@ def test_identity_state_plan_is_deterministic_and_non_executing(tmp_path):
     assert first.safety_flags == probe.SAFETY_FLAGS
     assert first.recommended_next_commands == [
         ".venv/bin/python scripts/probe_so_arm_readiness.py --plan-identity-state-query",
+        ".venv/bin/python scripts/probe_so_arm_readiness.py --enable-non-actuating-identity-query",
         ".venv/bin/python scripts/probe_so_arm_readiness.py --enable-serial-open-close-check",
     ]
 
@@ -610,7 +611,89 @@ def test_cli_identity_state_plan_writes_report_without_serial_open(tmp_path, mon
     assert report["safety_flags"] == probe.SAFETY_FLAGS
 
 
-def test_help_text_exposes_identity_state_planning_without_live_execution():
+def test_identity_query_checkpoint_reports_exact_bytes_without_confirmation(tmp_path, monkeypatch):
+    fake_device = tmp_path / "ttyUSB0"
+    fake_device.write_text("", encoding="utf-8")
+    output_dir = tmp_path / "reports"
+
+    def forbidden_serial_loader():
+        raise AssertionError("checkpoint must not load serial without confirmation")
+
+    monkeypatch.setattr(probe, "load_serial_factory", forbidden_serial_loader)
+    exit_code = probe.main(
+        [
+            "--enable-non-actuating-identity-query",
+            "--device",
+            str(fake_device),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+    report = json.loads((output_dir / "latest.json").read_text(encoding="utf-8"))
+
+    assert exit_code == 1
+    assert report["mode"] == "identity_query_operator_checkpoint"
+    assert report["status"] == "identity_query_approval_required"
+    assert report["query_attempted"] is False
+    assert report["serial_open_attempted"] is False
+    assert report["serial_commands_sent"] is False
+    assert report["planned_request_bytes_hex"] == "ff ff 01 02 01 fb"
+    assert report["query_is_passive"] is False
+    assert report["safety_flags"] == probe.SAFETY_FLAGS
+    assert "--confirm-send-non-actuating-identity-query-bytes" in report["operator_checkpoint_command"]
+
+
+def test_identity_query_confirmed_path_uses_mocked_serial_backend(tmp_path, monkeypatch):
+    fake_device = tmp_path / "ttyUSB0"
+    fake_device.write_text("", encoding="utf-8")
+    output_dir = tmp_path / "reports"
+    calls = {"read": 0, "write": 0}
+
+    class FakeSerial:
+        def __init__(self, port, baudrate, timeout, write_timeout):
+            self.port = port
+
+        def write(self, payload):
+            calls["write"] += 1
+            assert payload == bytes.fromhex("ff ff 01 02 01 fb")
+            return len(payload)
+
+        def read(self, size):
+            calls["read"] += 1
+            assert size == 6
+            return bytes.fromhex("ff ff 01 02 00 fc")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(probe, "load_serial_factory", lambda: FakeSerial)
+    exit_code = probe.main(
+        [
+            "--enable-non-actuating-identity-query",
+            "--confirm-send-non-actuating-identity-query-bytes",
+            "--device",
+            str(fake_device),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+    report = json.loads((output_dir / "latest.json").read_text(encoding="utf-8"))
+
+    assert exit_code == 0
+    assert report["mode"] == "non_actuating_identity_query"
+    assert report["query_attempted"] is True
+    assert report["serial_opened"] is True
+    assert report["serial_commands_sent"] is True
+    assert report["identity_query_bytes_written"] == 6
+    assert report["identity_response_bytes_read"] == 6
+    assert report["identity_detected"] is True
+    assert report["safety_flags"]["torque_enabled"] is False
+    assert report["safety_flags"]["movement_commanded"] is False
+    assert report["safety_flags"]["actuator_calls"] is False
+    assert calls == {"read": 1, "write": 1}
+
+
+def test_help_text_exposes_identity_query_checkpoint_without_vague_live_flags():
     result = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "--help"],
         check=False,
@@ -620,8 +703,11 @@ def test_help_text_exposes_identity_state_planning_without_live_execution():
 
     assert result.returncode == 0
     assert "--plan-identity-state-query" in result.stdout
+    assert "--enable-non-actuating-identity-query" in result.stdout
+    assert "--confirm-send-non-actuating-identity-query-bytes" in result.stdout
     assert "--enable-identity-state-query" not in result.stdout
     assert "--execute" not in result.stdout
+    assert "--live" not in result.stdout
 
 
 def test_cli_permission_check_writes_operator_readiness_fields(tmp_path):
