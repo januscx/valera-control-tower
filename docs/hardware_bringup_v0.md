@@ -139,11 +139,17 @@ attempted.
 
 ### SO-ARM 101 readiness sequence
 
-Stage 0: docs/inventory identity. Record `/dev/ttyUSB0` and
-`/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0` as the SO-ARM 101 motor
-controller path based on operator-confirmed kit provenance.
+Implementation PR phases and hardware bring-up phases use the same numbering
+from this point forward.
 
-Stage 1: fail-closed metadata readiness. `scripts/probe_so_arm_readiness.py`
+Phase 0: hardware inventory / operator provenance. Record `/dev/ttyUSB0` and
+`/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0` as the SO-ARM 101 motor
+controller path based on operator-confirmed kit provenance. This phase is
+read-only inventory only: no protocol validation, no serial open, no bytes sent,
+no torque enablement, and no movement.
+
+Phase 1: metadata-only SO-ARM readiness.
+`scripts/probe_so_arm_readiness.py`
 reports the known path, refuses readiness by default, and only performs
 filesystem metadata checks after an explicit `--enable-metadata-check` opt-in.
 The compatibility flag `--enable-serial-open` is retained, but in Phase 1 it is
@@ -168,7 +174,7 @@ Phase 1 safety flags are all false:
 
 The Phase 1 note is explicit: no serial port is opened and no bytes are sent.
 
-Stage 2: permissions-only operator readiness. `scripts/probe_so_arm_readiness.py`
+Phase 2: permissions/operator readiness. `scripts/probe_so_arm_readiness.py`
 adds an explicit `--enable-permission-check` mode that records Linux
 permissions, current user/group membership, and safe operator recommendations.
 It remains metadata-only and does not open the serial port.
@@ -240,7 +246,7 @@ Phase 2 explicitly does not:
 - confirm that torque/motor readiness exists
 - confirm that the arm is safe to move
 
-Stage 3: adapter contract skeleton. The project now has a project-owned
+Phase 3: adapter contract skeleton. The project now has a project-owned
 `ArmAdapter` protocol, `SimArmAdapter`, and `MetadataOnlySOArmAdapter`. Runtime
 selection can inject the metadata-only SO-ARM adapter through
 `AdapterRuntimeConfig(arm_adapter_kind="metadata_only_so_arm")`.
@@ -261,31 +267,44 @@ The orchestrator must keep using adapter interfaces only. It must not import
 LeRobot, pyserial, serial handles, device paths, or hardware-control APIs
 directly.
 
-Stage 4: read-only identity/state query. Only add protocol/library reads if the
-SO-ARM 101 stack supports identity or state queries without writes, torque
-enablement, homing, or movement.
+Phase 4: dry-run arm command envelope. This is the next recommended
+implementation package. Define the command schema for intended arm actions and
+validate it in dry-run mode only, using adapter-compatible command planning,
+structured mission/event preview, and dashboard/evidence-friendly output.
+Phase 4 must not open serial, enable torque, command movement, send bytes, or
+call hardware-control APIs.
 
-Stage 5: torque-disabled state verification. Verify the arm remains
-torque-disabled before any later motion planning.
+Phase 5: read-only serial identity/state gate. This is the first phase where a
+serial port may possibly be opened, and only if the selected protocol/library
+supports a safe read-only identity or state query. Phase 5 must not send
+movement commands, enable torque, home the arm, or write to the serial port
+unless a safe identity protocol plan explicitly justifies the write and receives
+separate review.
 
-Stage 6: separate future controlled motion plan. Motion, torque enablement, base
-control, and actuator calls remain out of scope for Hardware Bring-up v0 and
-must be planned in a separate PR with explicit safety gates.
+Phase 6: torque-disabled verification. Verify that the arm remains
+torque-disabled before later motion planning. Phase 6 still allows no motion and
+no free actuator control.
+
+Phase 7: controlled motion safety plan / first supervised movement. This must be
+a separate future PR with an explicit physical safety checklist, emergency stop
+or power cut available, tiny supervised movement only, operator present,
+evidence logging, and no autonomous motion.
 
 ## SO-ARM 101 probe checklist
 
 Probe-only:
 
-- [x] identify connection/interface by operator-confirmed kit provenance
-- [x] verify fail-closed default readiness wrapper
-- [x] write metadata-only local readiness reports
-- [x] report permissions/operator readiness without opening serial
-- [x] define metadata-only SO-ARM adapter skeleton
-- [ ] identify required runtime/library
-- [ ] read model/config if possible
-- [ ] read joint/state if possible
-- [ ] verify torque disabled if applicable
-- [ ] do not send movement commands
+- [x] Phase 0 inventory/provenance
+- [x] Phase 1 metadata-only readiness
+- [x] Phase 2 permissions/operator readiness
+- [x] Phase 3 metadata-only SO-ARM adapter skeleton
+- [ ] Phase 4 dry-run command envelope
+- [ ] Phase 5 identify required runtime/library
+- [ ] Phase 5 read model/config if possible
+- [ ] Phase 5 read joint/state if possible
+- [ ] Phase 6 verify torque disabled if applicable
+- [ ] Phase 7 first controlled motion plan, not execution unless explicitly
+      approved
 
 ## Tracked base probe checklist
 
@@ -309,9 +328,8 @@ Probe-only:
 
 ## Follow-up PR slices
 
-- PR A: hardware inventory script/report, read-only
-- PR B: SO-ARM protocol/library discovery, no serial read/write until a safe
-  read-only plan is defined
-- PR C: tracked base probe adapter, no movement
-- PR D: hardware safety gate model
-- PR E: first controlled motion test plan, docs only, not execution
+- PR Phase 4: dry-run arm command envelope
+- PR Phase 5: read-only SO-ARM serial identity/state gate
+- PR Phase 6: torque-disabled verification
+- PR Phase 7: controlled motion safety plan / first supervised movement
+- tracked base remains separate and probe-only
