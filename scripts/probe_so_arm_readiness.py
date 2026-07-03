@@ -51,6 +51,43 @@ PHASE_5A_LIMITATIONS = (
     "the protocol/library can perform read-only identity/state discovery "
     "without torque, homing, movement, or unsafe writes."
 )
+PHASE_5B_PLAN_NOTE = (
+    "Phase 5B identity/state query is not executed. This planning report opens "
+    "no serial port, sends no bytes, and reads no bytes."
+)
+PHASE_5B_PLAN_LIMITATIONS = (
+    "The project has not yet selected and reviewed a non-actuating SO-ARM "
+    "identity/state protocol implementation. Feetech PING and READ DATA style "
+    "queries are request/response operations, so they require bytes to be sent "
+    "before bytes can be read. Do not call this passive read-only unless the "
+    "query plan explicitly records bytes written and proves it cannot enable "
+    "torque, homing, movement, or actuator state changes."
+)
+IDENTITY_STATE_PROTOCOL_FINDINGS = {
+    "protocol_candidate": "Feetech serial bus servo protocol",
+    "library_candidate": "LeRobot Feetech SDK / scservo-compatible SDK",
+    "query_requires_bytes": True,
+    "torque_required": False,
+    "movement_required": False,
+    "homing_required": False,
+}
+IDENTITY_STATE_BLOCKERS = [
+    "No LeRobot or Feetech/scservo SDK is installed in the project environment.",
+    "No project-owned non-actuating identity/state query implementation exists yet.",
+    "Feetech PING/READ DATA style identity/state discovery requires request bytes.",
+    "Expected SO-ARM servo ids, baudrate, and response schema have not been verified in project code.",
+    "The operator has not completed the wiring/power/pose checklist for query readiness.",
+]
+IDENTITY_STATE_OPERATOR_PRECONDITIONS = [
+    "Confirm CH340 `/dev/ttyUSB0` is the SO-ARM controller path by physical label.",
+    "Confirm arm power state is intentional and documented before query work.",
+    "Confirm controller board is connected to the correct servo bus.",
+    "Confirm servo cable orientation and no loose wires.",
+    "Confirm arm is mechanically supported and links/gripper are clear.",
+    "Confirm emergency power cut is available and reachable.",
+    "Confirm tracks/base are disabled or off-ground if relevant.",
+    "Confirm no human fingers are inside pinch or motion zones.",
+]
 COMMON_SERIAL_GROUPS = {"dialout", "uucp", "tty", "serial", "plugdev"}
 SAFETY_FLAGS = {
     "serial_opened": False,
@@ -123,6 +160,28 @@ class SerialOpenCloseResult:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class IdentityStatePlanResult:
+    exit_code: int
+    status: str
+    next_operator_action: str
+    phase: str
+    mode: str
+    execution_available: bool
+    protocol_candidate: str
+    library_candidate: str
+    query_requires_bytes: bool
+    torque_required: bool
+    movement_required: bool
+    homing_required: bool
+    safe_to_execute_now: bool
+    blockers: list[str]
+    operator_preconditions: list[str]
+    recommended_next_commands: list[str]
+    safety_flags: dict[str, bool]
+    limitations: str
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -172,6 +231,14 @@ def build_parser() -> argparse.ArgumentParser:
             "Explicit operator opt-in for Phase 5A serial open/close readiness. "
             "This opens the serial port with a timeout, sends no bytes, reads "
             "no bytes, and closes it immediately."
+        ),
+    )
+    parser.add_argument(
+        "--plan-identity-state-query",
+        action="store_true",
+        help=(
+            "Write a Phase 5B identity/state query plan only. This does not "
+            "open serial, send bytes, read bytes, enable torque, home, or move."
         ),
     )
     parser.add_argument(
@@ -588,12 +655,48 @@ def perform_serial_open_close_check(
     )
 
 
+def plan_identity_state_query(readiness: PermissionReadiness) -> IdentityStatePlanResult:
+    blockers = list(IDENTITY_STATE_BLOCKERS)
+    if not readiness.path_exists:
+        blockers.insert(0, "SO-ARM serial path is missing.")
+    elif not readiness.readable or not readiness.writable:
+        blockers.insert(0, "Current session cannot read/write the SO-ARM serial path.")
+
+    return IdentityStatePlanResult(
+        exit_code=0,
+        status="identity_state_query_planned_blocked",
+        next_operator_action=(
+            "Complete the wiring checklist and choose a vetted non-actuating "
+            "Feetech/LeRobot identity-state query before any live Phase 5B run."
+        ),
+        phase="5B",
+        mode="identity_state_query_plan",
+        execution_available=False,
+        protocol_candidate=IDENTITY_STATE_PROTOCOL_FINDINGS["protocol_candidate"],
+        library_candidate=IDENTITY_STATE_PROTOCOL_FINDINGS["library_candidate"],
+        query_requires_bytes=bool(IDENTITY_STATE_PROTOCOL_FINDINGS["query_requires_bytes"]),
+        torque_required=bool(IDENTITY_STATE_PROTOCOL_FINDINGS["torque_required"]),
+        movement_required=bool(IDENTITY_STATE_PROTOCOL_FINDINGS["movement_required"]),
+        homing_required=bool(IDENTITY_STATE_PROTOCOL_FINDINGS["homing_required"]),
+        safe_to_execute_now=False,
+        blockers=blockers,
+        operator_preconditions=list(IDENTITY_STATE_OPERATOR_PRECONDITIONS),
+        recommended_next_commands=[
+            ".venv/bin/python scripts/probe_so_arm_readiness.py --plan-identity-state-query",
+            ".venv/bin/python scripts/probe_so_arm_readiness.py --enable-serial-open-close-check",
+        ],
+        safety_flags=dict(SAFETY_FLAGS),
+        limitations=PHASE_5B_PLAN_LIMITATIONS,
+    )
+
+
 def build_report(
     readiness: PathReadiness,
     phase_status: Phase1Status,
     *,
     permission_readiness: PermissionReadiness | None = None,
     serial_open_close_result: SerialOpenCloseResult | None = None,
+    identity_state_plan: IdentityStatePlanResult | None = None,
 ) -> dict:
     report = {
         "schema_version": 1,
@@ -689,6 +792,34 @@ def build_report(
                 "limitations": serial_open_close_result.limitations,
             }
         )
+    if identity_state_plan is not None:
+        report.update(
+            {
+                "phase": identity_state_plan.phase,
+                "mode": identity_state_plan.mode,
+                "phase_5b_note": PHASE_5B_PLAN_NOTE,
+                "phase_5b_limitations": identity_state_plan.limitations,
+                "device_path": permission_readiness.device_path if permission_readiness else readiness.path,
+                "resolved_path": (
+                    permission_readiness.resolved_path
+                    if permission_readiness
+                    else readiness.resolved_target
+                ),
+                "execution_available": identity_state_plan.execution_available,
+                "protocol_candidate": identity_state_plan.protocol_candidate,
+                "library_candidate": identity_state_plan.library_candidate,
+                "query_requires_bytes": identity_state_plan.query_requires_bytes,
+                "torque_required": identity_state_plan.torque_required,
+                "movement_required": identity_state_plan.movement_required,
+                "homing_required": identity_state_plan.homing_required,
+                "safe_to_execute_now": identity_state_plan.safe_to_execute_now,
+                "blockers": list(identity_state_plan.blockers),
+                "operator_preconditions": list(identity_state_plan.operator_preconditions),
+                "recommended_next_commands": list(identity_state_plan.recommended_next_commands),
+                "safety_flags": dict(identity_state_plan.safety_flags),
+                "limitations": identity_state_plan.limitations,
+            }
+        )
     return report
 
 
@@ -717,14 +848,23 @@ def render_markdown(report: dict) -> str:
     safety_flags = report["safety_flags"]
     is_phase_2 = report["phase"] == "phase_2_permissions_operator_readiness"
     is_phase_5a = report["phase"] == "5A"
-    lines = [
-        (
-            "# SO-ARM Readiness Phase 5A"
-            if is_phase_5a
-            else "# SO-ARM Readiness Phase 2"
-            if is_phase_2
-            else "# SO-ARM Readiness Phase 1"
+    is_phase_5b = report["phase"] == "5B"
+    title = "# SO-ARM Readiness Phase 1"
+    if is_phase_2:
+        title = "# SO-ARM Readiness Phase 2"
+    if is_phase_5a:
+        title = "# SO-ARM Readiness Phase 5A"
+    if is_phase_5b:
+        title = "# SO-ARM Readiness Phase 5B Plan"
+    phase_note = report.get(
+        "phase_5b_note",
+        report.get(
+            "phase_5a_note",
+            report.get("phase_2_note", "Phase 1 does not open serial and sends no bytes."),
         ),
+    )
+    lines = [
+        title,
         "",
         "## Summary",
         "",
@@ -740,10 +880,7 @@ def render_markdown(report: dict) -> str:
         f"- Status: `{report['status']}`",
         f"- Exit code: `{report['exit_code']}`",
         "",
-        report.get(
-            "phase_5a_note",
-            report.get("phase_2_note", "Phase 1 does not open serial and sends no bytes."),
-        ),
+        phase_note,
         f"Next operator action: {report['next_operator_action']}",
         "",
         "## Path Metadata",
@@ -811,6 +948,39 @@ def render_markdown(report: dict) -> str:
                 "",
             ]
         )
+    if is_phase_5b:
+        lines.extend(
+            [
+                "## Identity/State Query Plan",
+                "",
+                "Identity/state query is not executed in this report.",
+                f"- Execution available: {report['execution_available']}",
+                f"- Protocol candidate: `{report['protocol_candidate']}`",
+                f"- Library candidate: `{report['library_candidate']}`",
+                f"- Query requires bytes: {report['query_requires_bytes']}",
+                f"- Torque required: {report['torque_required']}",
+                f"- Movement required: {report['movement_required']}",
+                f"- Homing required: {report['homing_required']}",
+                f"- Safe to execute now: {report['safe_to_execute_now']}",
+                "",
+                "Blockers:",
+                "",
+                *[f"- {blocker}" for blocker in report["blockers"]],
+                "",
+                "Operator preconditions:",
+                "",
+                *[f"- {item}" for item in report["operator_preconditions"]],
+                "",
+                "Recommended next commands:",
+                "",
+                *[f"- `{command}`" for command in report["recommended_next_commands"]],
+                "",
+                "## Phase 5B Limitations",
+                "",
+                report["phase_5b_limitations"],
+                "",
+            ]
+        )
     lines.extend(
         [
         "## Groups",
@@ -833,12 +1003,25 @@ def render_console_report(
     report_paths: tuple[Path, Path] | None = None,
     permission_readiness: PermissionReadiness | None = None,
     serial_open_close_result: SerialOpenCloseResult | None = None,
+    identity_state_plan: IdentityStatePlanResult | None = None,
 ) -> str:
     safety_flags = (
-        serial_open_close_result.safety_flags
+        identity_state_plan.safety_flags
+        if identity_state_plan is not None
+        else serial_open_close_result.safety_flags
         if serial_open_close_result is not None
         else SAFETY_FLAGS
     )
+    phase_note = PHASE_1_NOTE
+    no_io_note = "No serial port opened. No bytes sent. Metadata only."
+    if permission_readiness is not None:
+        phase_note = PHASE_2_NOTE
+    if serial_open_close_result is not None:
+        phase_note = PHASE_5A_NOTE
+        no_io_note = "Serial open/close only. No bytes sent. No bytes read."
+    if identity_state_plan is not None:
+        phase_note = PHASE_5B_PLAN_NOTE
+        no_io_note = "Planning only. No serial port opened. No bytes sent. No bytes read."
     lines = [
         "SO-ARM 101 readiness probe",
         "",
@@ -860,18 +1043,8 @@ def render_console_report(
         "Safety status:",
         *[f"- {name}: {str(value).lower()}" for name, value in safety_flags.items()],
         "",
-        (
-            PHASE_5A_NOTE
-            if serial_open_close_result is not None
-            else PHASE_2_NOTE
-            if permission_readiness is not None
-            else PHASE_1_NOTE
-        ),
-        (
-            "Serial open/close only. No bytes sent. No bytes read."
-            if serial_open_close_result is not None
-            else "No serial port opened. No bytes sent. Metadata only."
-        ),
+        phase_note,
+        no_io_note,
         f"Next operator action: {phase_status.next_operator_action}",
     ]
     if permission_readiness is not None:
@@ -914,6 +1087,29 @@ def render_console_report(
                 PHASE_5A_LIMITATIONS,
             ]
         )
+    if identity_state_plan is not None:
+        lines.extend(
+            [
+                "",
+                "Phase 5B identity/state query plan",
+                f"Execution available: {identity_state_plan.execution_available}",
+                f"Protocol candidate: {identity_state_plan.protocol_candidate}",
+                f"Library candidate: {identity_state_plan.library_candidate}",
+                f"Query requires bytes: {identity_state_plan.query_requires_bytes}",
+                f"Torque required: {identity_state_plan.torque_required}",
+                f"Movement required: {identity_state_plan.movement_required}",
+                f"Homing required: {identity_state_plan.homing_required}",
+                f"Safe to execute now: {identity_state_plan.safe_to_execute_now}",
+                "Blockers:",
+                *[f"- {blocker}" for blocker in identity_state_plan.blockers],
+                "Operator preconditions:",
+                *[f"- {item}" for item in identity_state_plan.operator_preconditions],
+                "Recommended next commands:",
+                *[f"- {command}" for command in identity_state_plan.recommended_next_commands],
+                "",
+                PHASE_5B_PLAN_LIMITATIONS,
+            ]
+        )
     if phase_status.status == "fail_closed":
         lines.extend(
             [
@@ -927,10 +1123,15 @@ def render_console_report(
             [
                 "",
                 (
-                    "Opt-in acknowledged: this implementation only attempted "
-                    "serial open/close and did not read or write bytes."
-                    if serial_open_close_result is not None
-                    else "Opt-in acknowledged: this implementation only checked path metadata."
+                    "Opt-in acknowledged: this implementation only planned "
+                    "identity/state readiness and did not open serial."
+                    if identity_state_plan is not None
+                    else (
+                        "Opt-in acknowledged: this implementation only attempted "
+                        "serial open/close and did not read or write bytes."
+                        if serial_open_close_result is not None
+                        else "Opt-in acknowledged: this implementation only checked path metadata."
+                    )
                 ),
             ]
         )
@@ -955,7 +1156,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     permission_readiness = None
     serial_open_close_result = None
-    if args.enable_serial_open_close_check:
+    identity_state_plan = None
+    if args.plan_identity_state_query:
+        permission_readiness = inspect_permission_readiness(args.device)
+        readiness = permission_readiness.path_metadata
+        identity_state_plan = plan_identity_state_query(permission_readiness)
+        phase_status = Phase1Status(
+            exit_code=identity_state_plan.exit_code,
+            status=identity_state_plan.status,
+            next_operator_action=identity_state_plan.next_operator_action,
+        )
+    elif args.enable_serial_open_close_check:
         permission_readiness = inspect_permission_readiness(args.device)
         readiness = permission_readiness.path_metadata
         serial_open_close_result = perform_serial_open_close_check(
@@ -978,12 +1189,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             metadata_check=args.enable_metadata_check,
         )
     report_paths = None
-    if args.enable_metadata_check or args.enable_permission_check or args.enable_serial_open_close_check:
+    if (
+        args.enable_metadata_check
+        or args.enable_permission_check
+        or args.enable_serial_open_close_check
+        or args.plan_identity_state_query
+    ):
         report = build_report(
             readiness,
             phase_status,
             permission_readiness=permission_readiness,
             serial_open_close_result=serial_open_close_result,
+            identity_state_plan=identity_state_plan,
         )
         report_paths = write_reports(report, Path(args.output_dir))
     print(
@@ -993,6 +1210,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             report_paths=report_paths,
             permission_readiness=permission_readiness,
             serial_open_close_result=serial_open_close_result,
+            identity_state_plan=identity_state_plan,
         ),
         end="",
     )

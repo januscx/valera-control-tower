@@ -30,6 +30,7 @@ def test_common_adapter_models_are_explicit_and_structured():
 from robot.adapters.arm import (
     ArmCapabilities,
     ArmCommandResult,
+    ArmIdentityStateReadiness,
     ArmJointState,
     ArmProbeResult,
     ArmState,
@@ -94,6 +95,37 @@ def test_arm_command_result_can_block_motion_without_success():
     assert result.ok is False
     assert result.executed is False
     assert result.failure.code == "hardware.motion.blocked"
+
+
+def test_arm_identity_state_readiness_can_plan_without_execution():
+    readiness = ArmIdentityStateReadiness(
+        phase="5B",
+        mode="identity_state_query_plan",
+        execution_available=False,
+        protocol_candidate="Feetech serial bus servo protocol",
+        library_candidate="LeRobot Feetech SDK / scservo-compatible SDK",
+        query_requires_bytes=True,
+        torque_required=False,
+        movement_required=False,
+        homing_required=False,
+        safe_to_execute_now=False,
+        blockers=("No vetted non-actuating query implementation is present.",),
+        operator_preconditions=("Confirm arm wiring before any query.",),
+        recommended_next_commands=(
+            ".venv/bin/python scripts/probe_so_arm_readiness.py --plan-identity-state-query",
+        ),
+        safety_flags={
+            "serial_opened": False,
+            "serial_commands_sent": False,
+            "torque_enabled": False,
+            "movement_commanded": False,
+            "actuator_calls": False,
+        },
+    )
+
+    assert readiness.execution_available is False
+    assert readiness.query_requires_bytes is True
+    assert readiness.safety_flags["torque_enabled"] is False
 
 
 from robot.adapters.camera import (

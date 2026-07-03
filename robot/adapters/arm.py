@@ -55,6 +55,24 @@ class ArmCommandResult:
     failure: AdapterFailure | None = None
 
 
+@dataclass(frozen=True)
+class ArmIdentityStateReadiness:
+    phase: str
+    mode: str
+    execution_available: bool
+    protocol_candidate: str
+    library_candidate: str
+    query_requires_bytes: bool
+    torque_required: bool
+    movement_required: bool
+    homing_required: bool
+    safe_to_execute_now: bool
+    blockers: tuple[str, ...] = ()
+    operator_preconditions: tuple[str, ...] = ()
+    recommended_next_commands: tuple[str, ...] = ()
+    safety_flags: dict[str, bool] = field(default_factory=dict)
+
+
 @runtime_checkable
 class ArmAdapter(Protocol):
     identity: AdapterIdentity
