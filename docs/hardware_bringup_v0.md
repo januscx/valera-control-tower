@@ -97,6 +97,60 @@ Use `latest.md` for human review and `latest.json` for exact device paths and
 command output. Follow-up PRs should treat all candidate labels as possible
 matches only, then add separate probe-only code with explicit safety notes.
 
+## Dual-camera probe
+
+Purpose: repeatedly capture one JPEG frame from each verified Valera camera using
+stable `/dev/v4l/by-id/*` paths, so camera evidence is reproducible across
+reboots and USB reenumeration.
+
+Run:
+
+```bash
+.venv/bin/python scripts/probe_cameras.py
+```
+
+Probe one camera only:
+
+```bash
+.venv/bin/python scripts/probe_cameras.py --camera innomaker
+.venv/bin/python scripts/probe_cameras.py --camera astra_pro
+```
+
+Outputs are generated under ignored paths:
+
+- `tmp/camera-probe/innomaker.jpg`
+- `tmp/camera-probe/astra_pro.jpg`
+- `tmp/camera-probe/report.md`
+
+The script always uses these stable by-id paths, not `/dev/videoN` nodes:
+
+- Innomaker-U20CAM-1080p-S1:
+  `/dev/v4l/by-id/usb-Innomaker_Innomaker-U20CAM-1080p-S1_SN0001-video-index0`
+- Orbbec Astra Pro HD Camera:
+  `/dev/v4l/by-id/usb-Astra_Pro_HD_Camera_Astra_Pro_HD_Camera-video-index0`
+
+### Why by-id paths instead of `/dev/videoN`
+
+`/dev/video0`, `/dev/video2`, and similar kernel-assigned indices can change
+when USB devices are reconnected, hubs are reset, or the host reboots. The
+`/dev/v4l/by-id/` symlinks are tied to the USB vendor/product/serial identity
+of each camera, so they remain stable as long as the physical device is the
+same. The probe script resolves each symlink to the current `/dev/videoN` node
+at runtime and reports both the configured by-id path and the resolved node in
+`report.md`.
+
+### Recommended modes
+
+| Camera | Resolution | FPS | FOURCC |
+|--------|------------|-----|--------|
+| Innomaker-U20CAM-1080p-S1 | 1920x1080 | 30 | MJPG |
+| Orbbec Astra Pro HD Camera | 1280x720 | 30 | MJPG |
+
+The script sets these modes explicitly with `cv2.VideoCapture` and V4L2. It
+captures exactly one frame per camera, writes a JPEG, and exits non-zero if any
+required camera fails. It does not open serial devices, call arm/base adapters,
+import LeRobot hardware-control APIs, or move the robot.
+
 ## Valera inventory snapshot - 2026-07-02
 
 A read-only Hardware Inventory v0 run on `valera` confirmed:
