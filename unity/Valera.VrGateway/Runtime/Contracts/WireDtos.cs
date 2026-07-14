@@ -30,12 +30,12 @@ namespace Valera.VrGateway.Contracts
         public PayloadDto payload;
     }
 
-    [Serializable] public sealed class SessionStartCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public PayloadDto payload; }
-    [Serializable] public sealed class SessionStopCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public PayloadDto payload; }
-    [Serializable] public sealed class ModeSetCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public PayloadDto payload; }
-    [Serializable] public sealed class HeadPoseCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public PayloadDto payload; }
-    [Serializable] public sealed class HeadRecenterCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public PayloadDto payload; }
-    [Serializable] public sealed class EmergencyStopCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public PayloadDto payload; }
+    [Serializable] public sealed class SessionStartCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public SessionStartPayloadDto payload; }
+    [Serializable] public sealed class SessionStopCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public EmptyPayloadDto payload; }
+    [Serializable] public sealed class ModeSetCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public ModeSetPayloadDto payload; }
+    [Serializable] public sealed class HeadPoseCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public HeadPosePayloadDto payload; }
+    [Serializable] public sealed class HeadRecenterCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public HeadRecenterPayloadDto payload; }
+    [Serializable] public sealed class EmergencyStopCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public EmptyPayloadDto payload; }
 
     [Serializable]
     public sealed class EventEnvelopeDto
@@ -56,6 +56,12 @@ namespace Valera.VrGateway.Contracts
         public QuaternionDto orientation;
         public PositionDto position;
     }
+
+    [Serializable] public sealed class EmptyPayloadDto { }
+    [Serializable] public sealed class SessionStartPayloadDto { public string requested_mode; }
+    [Serializable] public sealed class ModeSetPayloadDto { public string mode; }
+    [Serializable] public sealed class HeadRecenterPayloadDto { public string frame; public QuaternionDto orientation; }
+    [Serializable] public sealed class HeadPosePayloadDto { public string frame; public QuaternionDto orientation; public PositionDto position; }
 
     [Serializable]
     public sealed class QuaternionDto

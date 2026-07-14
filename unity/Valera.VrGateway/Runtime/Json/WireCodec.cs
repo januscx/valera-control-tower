@@ -29,6 +29,14 @@ namespace Valera.VrGateway.Json
             return dto;
         }
 
+        public static string EncodeCommand(object dto)
+        {
+            if (dto == null) throw new WireValidationException("Command DTO must not be null.");
+            string json = JsonUtility.ToJson(dto);
+            DecodeCommand(json);
+            return json;
+        }
+
         public static object DecodeEvent(string json)
         {
             JsonValue root = StrictJsonParser.Parse(json);
@@ -57,6 +65,14 @@ namespace Valera.VrGateway.Json
             object dto = JsonUtility.FromJson(json, type);
             if (dto == null) throw new WireValidationException("Event DTO deserialization failed.");
             return dto;
+        }
+
+        public static string EncodeEvent(object dto)
+        {
+            if (dto == null) throw new WireValidationException("Event DTO must not be null.");
+            string json = JsonUtility.ToJson(dto);
+            DecodeEvent(json);
+            return json;
         }
 
         private static Type CommandType(string command)
