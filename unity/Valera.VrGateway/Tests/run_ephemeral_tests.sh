@@ -2,8 +2,7 @@
 set -euo pipefail
 
 : "${UNITY:?Set UNITY to a Unity Editor executable.}"
-repo_root=$(cd "$(dirname "$0")/.." && pwd)
-package_path="$repo_root/unity/Valera.VrGateway"
+package_path=$(cd "$(dirname "$0")/.." && pwd)
 host=$(mktemp -d /tmp/valera-vr-gateway-unity-host.XXXXXX)
 results="$host/results.xml"
 trap 'rm -rf "$host"' EXIT
