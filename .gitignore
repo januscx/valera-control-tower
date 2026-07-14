@@ -31,6 +31,9 @@ tmp/
 *.log
 .gstack/
 
+# Local opencode/git worktrees
+.worktrees/
+
 # Runtime evidence
 data/evidence/
 data/dashboard/

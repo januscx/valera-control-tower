@@ -66,6 +66,30 @@ The runner prints newline-delimited JSON and opens no ROS, network, base, arm,
 gripper, or real neck device. Its named simulation angles are deterministic
 fixtures, not Valera hardware calibration.
 
+### VR Gateway ROS 2 transport slice
+
+A minimal ROS 2 / rosbridge transport adapter for the gateway core lives in
+`robot/vr_gateway/wire.py` (transport-neutral JSON codec),
+`robot/vr_gateway/adapter.py` (thin fail-closed adapter), and
+`robot/vr_gateway_ros/` (ROS 2 node). The ROS layer only moves JSON strings
+between ROS topics and the gateway; it owns no safety decisions.
+
+| direction | topic | type |
+|-----------|-------|------|
+| subscribe | `/valera/vr_gateway/command` | `std_msgs/msg/String` (raw JSON command) |
+| publish | `/valera/vr_gateway/event` | `std_msgs/msg/String` (one message per event) |
+
+The node defaults to a 20 ms poll timer and uses the simulation neck
+configuration only. It never opens neck servos, the tracked base, or the
+SO-101 arm. See `docs/vr_gateway_ros2_transport_v0_1.md` for the full topic
+contract, JSON examples, and limitations.
+
+Run the transport and bridge tests without an installed ROS:
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/test_vr_gateway_wire.py tests/test_vr_gateway_ros_node.py -v
+```
+
 Verify the full local hybrid demo chain:
 
 ```bash
