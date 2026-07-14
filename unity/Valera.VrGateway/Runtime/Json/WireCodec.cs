@@ -29,6 +29,36 @@ namespace Valera.VrGateway.Json
             return dto;
         }
 
+        public static object DecodeEvent(string json)
+        {
+            JsonValue root = StrictJsonParser.Parse(json);
+            RequireObject(root, "event root");
+            RequireString(root, "schema_version", WireValues.SchemaVersion);
+            string eventType = RequireString(root, "event_type", null);
+            RequireInteger(root, "gateway_monotonic_ns", 0);
+            Type type;
+            switch (eventType)
+            {
+                case WireValues.GatewayState:
+                    RequireExactFields(root, Fields("schema_version", "event_type", "gateway_monotonic_ns", "state", "session_id", "sequence"));
+                    RequireKnown(root, "state", "IDLE", "AWAITING_RECENTER", "HEAD_ACTIVE", "SAFE_STOPPED", "ESTOP_LATCHED"); type = typeof(GatewayStateEventDto); break;
+                case WireValues.NeckTarget:
+                    RequireExactFields(root, Fields("schema_version", "event_type", "gateway_monotonic_ns", "session_id", "sequence", "pan_degrees", "tilt_degrees", "hold"));
+                    RequireNonEmptyString(root, "session_id"); RequireInteger(root, "sequence", 1); RequireFiniteNumber(root, "pan_degrees"); RequireFiniteNumber(root, "tilt_degrees"); RequireBoolean(root, "hold"); type = typeof(NeckTargetEventDto); break;
+                case WireValues.SafetyStop:
+                    RequireExactFields(root, Fields("schema_version", "event_type", "gateway_monotonic_ns", "reason", "session_id", "sequence", "neck_action", "base_action", "arm_action"));
+                    RequireKnown(root, "reason", "WATCHDOG", "EMERGENCY_STOP", "SESSION_STOPPED"); RequireNonEmptyString(root, "neck_action"); RequireNonEmptyString(root, "base_action"); RequireNonEmptyString(root, "arm_action"); type = typeof(SafetyStopEventDto); break;
+                case WireValues.CommandRejected:
+                    RequireExactFields(root, Fields("schema_version", "event_type", "gateway_monotonic_ns", "code", "message", "session_id", "sequence"));
+                    RequireKnown(root, "code", "STALE_SEQUENCE", "STALE_TIMESTAMP", "SESSION_MISMATCH", "NO_ACTIVE_SESSION", "MODE_BLOCKED", "UNKNOWN_MODE", "WATCHDOG_ACTIVE", "INVALID_PAYLOAD", "ESTOP_LATCHED"); RequireNonEmptyString(root, "message"); type = typeof(CommandRejectedEventDto); break;
+                default: throw new WireValidationException("Unknown event type.");
+            }
+            ValidateNullableIdentifiers(root, eventType == WireValues.NeckTarget);
+            object dto = JsonUtility.FromJson(json, type);
+            if (dto == null) throw new WireValidationException("Event DTO deserialization failed.");
+            return dto;
+        }
+
         private static Type CommandType(string command)
         {
             switch (command)
@@ -65,6 +95,14 @@ namespace Valera.VrGateway.Json
         }
 
         private static double Square(double value) { return value * value; }
+        private static void RequireKnown(JsonValue value, string name, params string[] values) { string found = RequireString(value, name, null); foreach (string candidate in values) if (found == candidate) return; throw new WireValidationException(name + " has an unsupported value."); }
+        private static void RequireBoolean(JsonValue value, string name) { if (RequireMember(value, name).kind != JsonKind.Boolean) throw new WireValidationException(name + " must be boolean."); }
+        private static void ValidateNullableIdentifiers(JsonValue root, bool required)
+        {
+            JsonValue session = RequireMember(root, "session_id"); JsonValue sequence = RequireMember(root, "sequence");
+            if (required || session.kind != JsonKind.Null) RequireNonEmptyString(root, "session_id");
+            if (required || sequence.kind != JsonKind.Null) RequireInteger(root, "sequence", 1);
+        }
         private static HashSet<string> Fields(params string[] values) { return new HashSet<string>(values, StringComparer.Ordinal); }
         private static JsonValue RequireMember(JsonValue objectValue, string name) { JsonValue value; if (!objectValue.members.TryGetValue(name, out value)) throw new WireValidationException("Missing field: " + name); return value; }
         private static void RequireObject(JsonValue value, string context) { if (value == null || value.kind != JsonKind.Object) throw new WireValidationException(context + " must be an object."); }
