@@ -20,6 +20,46 @@ namespace Valera.VrGateway.Contracts
     }
 
     [Serializable]
+    public readonly struct Correlation : IEquatable<Correlation>
+    {
+        public static readonly Correlation Unavailable = new Correlation();
+
+        public readonly bool IsAvailable;
+        public readonly string SessionId;
+        public readonly long Sequence;
+
+        public Correlation(string sessionId, long sequence)
+        {
+            if (string.IsNullOrEmpty(sessionId)) throw new ArgumentException("session_id must be non-empty.", nameof(sessionId));
+            if (sequence < 1) throw new ArgumentOutOfRangeException(nameof(sequence), "sequence must be at least 1.");
+            IsAvailable = true;
+            SessionId = sessionId;
+            Sequence = sequence;
+        }
+
+        public bool Equals(Correlation other)
+        {
+            return IsAvailable == other.IsAvailable && SessionId == other.SessionId && Sequence == other.Sequence;
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is Correlation other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            if (!IsAvailable) return 0;
+            return SessionId.GetHashCode() ^ Sequence.GetHashCode();
+        }
+
+        public override string ToString()
+        {
+            return IsAvailable ? $"{SessionId}:{Sequence}" : "unavailable";
+        }
+    }
+
+    [Serializable]
     public sealed class CommandEnvelopeDto
     {
         public string schema_version;
@@ -36,16 +76,6 @@ namespace Valera.VrGateway.Contracts
     [Serializable] public sealed class HeadPoseCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public HeadPosePayloadDto payload; }
     [Serializable] public sealed class HeadRecenterCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public HeadRecenterPayloadDto payload; }
     [Serializable] public sealed class EmergencyStopCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public EmptyPayloadDto payload; }
-
-    [Serializable]
-    public sealed class EventEnvelopeDto
-    {
-        public string schema_version;
-        public string event_type;
-        public long gateway_monotonic_ns;
-        public string session_id;
-        public long sequence;
-    }
 
     [Serializable]
     public sealed class PayloadDto
@@ -87,8 +117,7 @@ namespace Valera.VrGateway.Contracts
         public string event_type;
         public long gateway_monotonic_ns;
         public string state;
-        public string session_id;
-        public long sequence;
+        public Correlation correlation;
     }
 
     [Serializable]
@@ -97,8 +126,7 @@ namespace Valera.VrGateway.Contracts
         public string schema_version;
         public string event_type;
         public long gateway_monotonic_ns;
-        public string session_id;
-        public long sequence;
+        public Correlation correlation;
         public double pan_degrees;
         public double tilt_degrees;
         public bool hold;
@@ -111,8 +139,7 @@ namespace Valera.VrGateway.Contracts
         public string event_type;
         public long gateway_monotonic_ns;
         public string reason;
-        public string session_id;
-        public long sequence;
+        public Correlation correlation;
         public string neck_action;
         public string base_action;
         public string arm_action;
@@ -126,7 +153,6 @@ namespace Valera.VrGateway.Contracts
         public long gateway_monotonic_ns;
         public string code;
         public string message;
-        public string session_id;
-        public long sequence;
+        public Correlation correlation;
     }
 }
