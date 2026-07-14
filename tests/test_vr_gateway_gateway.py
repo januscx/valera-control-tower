@@ -674,6 +674,103 @@ def test_valid_estop_precedes_elapsed_motion_watchdog():
     assert gateway.poll() == ()
 
 
+def test_valid_estop_precedes_elapsed_handshake_deadline():
+    gateway, clock = make_gateway()
+    start(gateway)
+    clock.advance_ms(10_000)
+
+    events = estop(gateway, session_id="operator-stop", sequence=99)
+
+    assert [type(event) for event in events] == [GatewayStateEvent, SafetyStopEvent]
+    assert events[0].state is GatewayState.ESTOP_LATCHED
+    assert events[1].reason is StopReason.EMERGENCY_STOP
+    assert gateway.poll() == ()
+
+
+@pytest.mark.parametrize("elapsed_ms", [250, 251])
+def test_malformed_estop_applies_motion_deadline_before_rejection(elapsed_ms):
+    gateway, clock = make_gateway()
+    start(gateway)
+    recenter(gateway)
+    pose(gateway)
+    clock.advance_ms(elapsed_ms)
+
+    events = estop(
+        gateway,
+        payload=ModeSetPayload("head"),
+        sequence=4,
+        timestamp_ms=3,
+    )
+
+    assert [type(event) for event in events] == [
+        GatewayStateEvent,
+        SafetyStopEvent,
+        CommandRejectedEvent,
+    ]
+    assert events[0].state is GatewayState.SAFE_STOPPED
+    assert events[1].reason is StopReason.WATCHDOG
+    assert events[2].code is RejectionCode.INVALID_PAYLOAD
+    assert not any(isinstance(event, NeckTargetEvent) for event in events)
+    assert gateway.poll() == ()
+
+
+@pytest.mark.parametrize("elapsed_ms", [10_000, 10_001])
+def test_malformed_estop_applies_handshake_deadline_before_rejection(elapsed_ms):
+    gateway, clock = make_gateway()
+    start(gateway)
+    clock.advance_ms(elapsed_ms)
+
+    events = estop(
+        gateway,
+        payload=ModeSetPayload("head"),
+        sequence=2,
+        timestamp_ms=1,
+    )
+
+    assert [type(event) for event in events] == [
+        GatewayStateEvent,
+        CommandRejectedEvent,
+    ]
+    assert events[0].state is GatewayState.IDLE
+    assert events[1].code is RejectionCode.INVALID_PAYLOAD
+    assert not any(isinstance(event, SafetyStopEvent) for event in events)
+    assert gateway.poll() == ()
+
+
+@pytest.mark.parametrize(
+    ("activate_head", "elapsed_ms", "expected_types", "expected_state"),
+    [
+        (False, 10_000, [GatewayStateEvent, CommandRejectedEvent], GatewayState.IDLE),
+        (
+            True,
+            250,
+            [GatewayStateEvent, SafetyStopEvent, CommandRejectedEvent],
+            GatewayState.SAFE_STOPPED,
+        ),
+    ],
+)
+def test_malformed_non_envelope_input_still_applies_elapsed_deadline(
+    activate_head,
+    elapsed_ms,
+    expected_types,
+    expected_state,
+):
+    gateway, clock = make_gateway()
+    start(gateway)
+    if activate_head:
+        recenter(gateway)
+        pose(gateway)
+    clock.advance_ms(elapsed_ms)
+
+    events = gateway.handle(object())
+
+    assert [type(event) for event in events] == expected_types
+    assert events[0].state is expected_state
+    assert events[-1].code is RejectionCode.INVALID_PAYLOAD
+    assert not any(isinstance(event, NeckTargetEvent) for event in events)
+    assert gateway.poll() == ()
+
+
 def test_rejected_commands_do_not_refresh_motion_watchdog():
     gateway, clock = make_gateway()
     start(gateway)

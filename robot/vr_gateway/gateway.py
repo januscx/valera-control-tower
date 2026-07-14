@@ -73,12 +73,17 @@ class VrGateway:
                 self._reject_untrusted(command, RejectionCode.INVALID_PAYLOAD, now_ns),
             )
 
-        if command.command is CommandName.EMERGENCY_STOP:
-            if type(command.payload) is not EmptyPayload:
-                return (self._reject(command, RejectionCode.INVALID_PAYLOAD, now_ns),)
+        if (
+            command.command is CommandName.EMERGENCY_STOP
+            and type(command.payload) is EmptyPayload
+        ):
             return self._handle_emergency_stop(command, now_ns)
 
         deadline_events = self._evaluate_deadline(now_ns)
+        if command.command is CommandName.EMERGENCY_STOP:
+            return deadline_events + (
+                self._reject(command, RejectionCode.INVALID_PAYLOAD, now_ns),
+            )
         if deadline_events:
             code = (
                 RejectionCode.WATCHDOG_ACTIVE
