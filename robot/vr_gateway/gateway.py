@@ -103,20 +103,42 @@ class VrGateway:
         return self._handle_session_stop(command, now_ns)
 
     def poll(self) -> tuple[OutputEvent, ...]:
-        if (
-            self.state is not GatewayState.AWAITING_RECENTER
-            or self.session_started_monotonic_ns is None
-        ):
-            return ()
         now_ns = self.clock()
-        if now_ns - self.session_started_monotonic_ns < self.config.handshake_timeout_ns:
-            return ()
+        if (
+            self.state is GatewayState.AWAITING_RECENTER
+            and self.session_started_monotonic_ns is not None
+            and now_ns - self.session_started_monotonic_ns
+            >= self.config.handshake_timeout_ns
+        ):
+            session_id = self.active_session_id
+            sequence = self.last_sequence
+            transition = self._transition(
+                GatewayState.IDLE, session_id, sequence, now_ns
+            )
+            self._invalidate_active_session()
+            return (transition,) if transition is not None else ()
 
-        session_id = self.active_session_id
-        sequence = self.last_sequence
-        transition = self._transition(GatewayState.IDLE, session_id, sequence, now_ns)
-        self._invalidate_active_session()
-        return (transition,) if transition is not None else ()
+        if (
+            self.state is GatewayState.HEAD_ACTIVE
+            and self.last_valid_packet_received_monotonic_ns is not None
+            and now_ns - self.last_valid_packet_received_monotonic_ns
+            >= self.config.motion_watchdog_timeout_ns
+        ):
+            session_id = self.active_session_id
+            sequence = self.last_sequence
+            transition = self._transition(
+                GatewayState.SAFE_STOPPED, session_id, sequence, now_ns
+            )
+            stop = SafetyStopEvent(
+                now_ns,
+                StopReason.WATCHDOG,
+                session_id,
+                sequence,
+            )
+            self._invalidate_active_session()
+            return (transition, stop) if transition is not None else (stop,)
+
+        return ()
 
     def _handle_session_start(
         self, command: CommandEnvelope, now_ns: int

@@ -103,6 +103,46 @@ def recenter(
     )
 
 
+def pose(
+    gateway: VrGateway,
+    *,
+    session_id: str = "session-a",
+    sequence: int = 3,
+    timestamp_ms: int = 2,
+) -> tuple:
+    return gateway.handle(
+        command(
+            CommandName.HEAD_POSE,
+            PosePayload(
+                "quest_local",
+                Quaternion(0.0, 0.1, 0.0, 1.0),
+            ),
+            session_id=session_id,
+            sequence=sequence,
+            timestamp_ms=timestamp_ms,
+        )
+    )
+
+
+def estop(
+    gateway: VrGateway,
+    *,
+    payload=EmptyPayload(),
+    session_id: str = "session-a",
+    sequence: int = 1,
+    timestamp_ms: int = 0,
+) -> tuple:
+    return gateway.handle(
+        command(
+            CommandName.EMERGENCY_STOP,
+            payload,
+            session_id=session_id,
+            sequence=sequence,
+            timestamp_ms=timestamp_ms,
+        )
+    )
+
+
 def rejection(events: tuple) -> CommandRejectedEvent:
     assert len(events) == 1
     assert isinstance(events[0], CommandRejectedEvent)
@@ -391,3 +431,155 @@ def test_handshake_timeout_returns_to_idle_without_safety_stop():
     )
     assert not any(isinstance(event, SafetyStopEvent) for event in events)
     assert gateway.poll() == ()
+
+
+def test_motion_watchdog_stops_head_motion_once_at_timeout():
+    gateway, clock = make_gateway()
+    start(gateway)
+    recenter(gateway)
+    pose(gateway)
+
+    clock.advance_ms(249)
+    assert gateway.poll() == ()
+    clock.advance_ms(1)
+    events = gateway.poll()
+
+    assert [type(event) for event in events] == [GatewayStateEvent, SafetyStopEvent]
+    assert events[0].state is GatewayState.SAFE_STOPPED
+    assert events[1].reason is StopReason.WATCHDOG
+    assert events[1].neck_action == "HOLD_LAST_POSITION"
+    assert gateway.poll() == ()
+
+
+def test_rejected_commands_do_not_refresh_motion_watchdog():
+    gateway, clock = make_gateway()
+    start(gateway)
+    recenter(gateway)
+    pose(gateway)
+
+    clock.advance_ms(100)
+    stale = rejection(pose(gateway))
+    clock.advance_ms(100)
+    blocked = rejection(
+        gateway.handle(
+            command(
+                CommandName.MODE_SET,
+                ModeSetPayload("drive"),
+                sequence=4,
+                timestamp_ms=3,
+            )
+        )
+    )
+    clock.advance_ms(49)
+    malformed = rejection(
+        gateway.handle(
+            command(
+                CommandName.SESSION_STOP,
+                ModeSetPayload("not-empty"),
+                sequence=5,
+                timestamp_ms=4,
+            )
+        )
+    )
+    clock.advance_ms(1)
+
+    assert stale.code is RejectionCode.STALE_SEQUENCE
+    assert blocked.code is RejectionCode.MODE_BLOCKED
+    assert malformed.code is RejectionCode.INVALID_PAYLOAD
+    assert [type(event) for event in gateway.poll()] == [
+        GatewayStateEvent,
+        SafetyStopEvent,
+    ]
+
+
+def test_expired_watchdog_session_rejects_traffic_without_target():
+    gateway, clock = make_gateway()
+    start(gateway)
+    recenter(gateway)
+    pose(gateway)
+    clock.advance_ms(250)
+    gateway.poll()
+
+    events = gateway.handle(
+        command(
+            CommandName.HEAD_POSE,
+            PosePayload("quest_local", Quaternion(0.0, 0.2, 0.0, 1.0)),
+            sequence=4,
+            timestamp_ms=3,
+        )
+    )
+
+    event = rejection(events)
+    assert event.code is RejectionCode.WATCHDOG_ACTIVE
+    assert not any(isinstance(item, NeckTargetEvent) for item in events)
+
+
+def test_estop_without_active_session_latches_and_stops():
+    gateway, _ = make_gateway()
+
+    events = estop(gateway, session_id="operator-stop", sequence=17)
+
+    assert [type(event) for event in events] == [GatewayStateEvent, SafetyStopEvent]
+    assert events[0].state is GatewayState.ESTOP_LATCHED
+    assert events[1].reason is StopReason.EMERGENCY_STOP
+    assert not any(isinstance(event, NeckTargetEvent) for event in events)
+
+
+def test_estop_bypasses_ordering_and_session_checks_and_repeats_stop_event():
+    gateway, _ = make_gateway()
+    start(gateway)
+    recenter(gateway)
+    pose(gateway, timestamp_ms=10)
+
+    first = estop(
+        gateway,
+        session_id="mismatched-session",
+        sequence=1,
+        timestamp_ms=0,
+    )
+    repeated = estop(gateway, session_id="another-session", sequence=1)
+
+    assert [type(event) for event in first] == [GatewayStateEvent, SafetyStopEvent]
+    assert first[0].state is GatewayState.ESTOP_LATCHED
+    assert first[1].reason is StopReason.EMERGENCY_STOP
+    assert repeated == (
+        SafetyStopEvent(0, StopReason.EMERGENCY_STOP, "another-session", 1),
+    )
+    assert not any(
+        isinstance(event, NeckTargetEvent) for event in first + repeated
+    )
+
+
+def test_estop_after_watchdog_transitions_to_latched_and_stops_again():
+    gateway, clock = make_gateway()
+    start(gateway)
+    recenter(gateway)
+    pose(gateway)
+    clock.advance_ms(250)
+    watchdog_events = gateway.poll()
+
+    events = estop(gateway, sequence=99, timestamp_ms=99)
+
+    assert watchdog_events[1].reason is StopReason.WATCHDOG
+    assert [type(event) for event in events] == [GatewayStateEvent, SafetyStopEvent]
+    assert events[0].state is GatewayState.ESTOP_LATCHED
+    assert events[1].reason is StopReason.EMERGENCY_STOP
+
+
+def test_estop_latch_rejects_session_reconnect():
+    gateway, _ = make_gateway()
+    estop(gateway)
+
+    event = rejection(start(gateway, session_id="session-b"))
+
+    assert event.code is RejectionCode.ESTOP_LATCHED
+    assert gateway.state is GatewayState.ESTOP_LATCHED
+
+
+def test_estop_rejects_nonempty_payload_without_latching():
+    gateway, _ = make_gateway()
+
+    event = rejection(estop(gateway, payload=ModeSetPayload("head")))
+
+    assert event.code is RejectionCode.INVALID_PAYLOAD
+    assert gateway.state is GatewayState.IDLE
