@@ -127,6 +127,8 @@ class VrGateway:
             return (self._reject(command, RejectionCode.INVALID_PAYLOAD, now_ns),)
         if command.session_id in self.used_session_ids:
             return (self._reject(command, RejectionCode.INVALID_PAYLOAD, now_ns),)
+        if command.payload.requested_mode in {"drive", "arm"}:
+            return (self._reject(command, RejectionCode.MODE_BLOCKED, now_ns),)
         if command.payload.requested_mode != "head":
             return (self._reject(command, RejectionCode.UNKNOWN_MODE, now_ns),)
 

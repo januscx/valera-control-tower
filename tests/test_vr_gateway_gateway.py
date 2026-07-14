@@ -140,6 +140,15 @@ def test_session_start_routes_unknown_mode_and_rejects_reused_id():
     assert reused.code is RejectionCode.INVALID_PAYLOAD
 
 
+@pytest.mark.parametrize("requested_mode", ["drive", "arm"])
+def test_session_start_blocks_modes_outside_v0_1_scope(requested_mode):
+    gateway, _ = make_gateway()
+
+    event = rejection(start(gateway, requested_mode=requested_mode))
+
+    assert event.code is RejectionCode.MODE_BLOCKED
+
+
 def test_new_session_invalidates_previous_session():
     gateway, _ = make_gateway()
     start(gateway)
