@@ -16,6 +16,17 @@ namespace Valera.VrGateway.Tests
             Assert.That(DecodeEvent(Encode("EncodeEvent", target)).GetType(), Is.EqualTo(typeof(NeckTargetEventDto)));
         }
 
+        [Test]
+        public void Codec_PreservesUnknownNonEmptyMode()
+        {
+            var command = new ModeSetCommandDto { schema_version = "0.1", command = "mode.set", session_id = "session-1", sequence = 2, timestamp_ms = 1, payload = new ModeSetPayloadDto { mode = "inspection" } };
+            string json = Encode("EncodeCommand", command);
+
+            Assert.That(json, Does.Contain("\"mode\":\"inspection\""));
+            var decoded = (ModeSetCommandDto)DecodeCommand(json);
+            Assert.That(decoded.payload.mode, Is.EqualTo("inspection"));
+        }
+
         private static string Encode(string method, object dto)
         {
             return (string)typeof(Valera.VrGateway.Json.WireCodec).GetMethod(method, BindingFlags.Public | BindingFlags.Static).Invoke(null, new[] { dto });

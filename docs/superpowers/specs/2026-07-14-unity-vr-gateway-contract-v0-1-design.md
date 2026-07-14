@@ -42,6 +42,13 @@ Wire enumerations are strings. A dedicated mapping layer maps approved strings
 to internal C# enums and rejects unknown values. C# enum serialization is never
 used for wire data.
 
+`session.start.requested_mode` is exactly `"head"`. In contrast,
+`mode.set.mode` is an open wire string: it must be non-empty, non-whitespace,
+and at most 64 characters, but an unfamiliar value is preserved for the Python
+gateway to reject with `UNKNOWN_MODE`. Optional Unity helpers may recognize
+`head`, `drive`, and `arm`; they must never rewrite or reject another valid raw
+mode string. Output rejection codes remain a closed, strict wire vocabulary.
+
 `sequence`, `timestamp_ms`, and `gateway_monotonic_ns` are `long`. Validation
 accepts only integer JSON literals in the range `0..Int64.MaxValue`. Fractional
 and exponent forms such as `1.0` and `1e3` are rejected even where their numeric

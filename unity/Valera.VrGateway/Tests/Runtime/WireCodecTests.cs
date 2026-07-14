@@ -25,6 +25,16 @@ namespace Valera.VrGateway.Tests
             Assert.That(error.InnerException.GetType().Name, Is.EqualTo("WireValidationException"));
         }
 
+        [TestCase("")]
+        [TestCase("   ")]
+        [TestCase("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+        public void DecodeCommand_RejectsUnsafeModeStrings(string mode)
+        {
+            string json = "{\"schema_version\":\"0.1\",\"command\":\"mode.set\",\"session_id\":\"s-1\",\"sequence\":1,\"timestamp_ms\":0,\"payload\":{\"mode\":\"" + mode + "\"}}";
+            Exception error = Assert.Throws<TargetInvocationException>(() => Decode("DecodeCommand", json));
+            Assert.That(error.InnerException.GetType().Name, Is.EqualTo("WireValidationException"));
+        }
+
         private static object Decode(string methodName, string json)
         {
             Type codec = Type.GetType("Valera.VrGateway.Json.WireCodec, Valera.VrGateway.Runtime");

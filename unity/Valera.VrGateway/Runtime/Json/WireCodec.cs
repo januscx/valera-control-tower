@@ -91,8 +91,8 @@ namespace Valera.VrGateway.Json
 
         private static void ValidateCommandPayload(string command, JsonValue payload)
         {
-            if (command == WireValues.SessionStart) { RequireExactFields(payload, Fields("requested_mode")); RequireNonEmptyString(payload, "requested_mode"); return; }
-            if (command == WireValues.ModeSet) { RequireExactFields(payload, Fields("mode")); RequireNonEmptyString(payload, "mode"); return; }
+            if (command == WireValues.SessionStart) { RequireExactFields(payload, Fields("requested_mode")); RequireString(payload, "requested_mode", "head"); return; }
+            if (command == WireValues.ModeSet) { RequireExactFields(payload, Fields("mode")); RequireModeString(payload); return; }
             if (command == WireValues.SessionStop || command == WireValues.EmergencyStop) { RequireExactFields(payload, Fields()); return; }
             bool positionAllowed = command == WireValues.HeadPose;
             RequireExactFields(payload, positionAllowed ? Fields("frame", "orientation", "position") : Fields("frame", "orientation"), positionAllowed ? Fields("position") : Fields());
@@ -136,6 +136,11 @@ namespace Valera.VrGateway.Json
             return value.text;
         }
         private static void RequireNonEmptyString(JsonValue objectValue, string name) { if (RequireString(objectValue, name, null).Length == 0) throw new WireValidationException(name + " must not be empty."); }
+        private static void RequireModeString(JsonValue objectValue)
+        {
+            string mode = RequireString(objectValue, "mode", null);
+            if (mode.Length == 0 || mode.Length > 64 || string.IsNullOrWhiteSpace(mode)) throw new WireValidationException("mode must be a bounded non-whitespace string.");
+        }
         private static long RequireInteger(JsonValue objectValue, string name, long minimum)
         {
             JsonValue value = RequireMember(objectValue, name);
