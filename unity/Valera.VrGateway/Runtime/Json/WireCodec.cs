@@ -123,7 +123,8 @@ namespace Valera.VrGateway.Json
                     return DecodeGatewayState(root);
                 case WireValues.NeckTarget:
                     RequireExactFields(root, Fields("schema_version", "event_type", "gateway_monotonic_ns", "session_id", "sequence", "pan_degrees", "tilt_degrees", "hold"));
-                    RequireFiniteNumber(root, "pan_degrees"); RequireFiniteNumber(root, "tilt_degrees"); RequireBoolean(root, "hold");
+                    RequireFiniteNumber(root, "pan_degrees"); RequireFiniteNumber(root, "tilt_degrees");
+                    if (RequireMember(root, "hold").kind != JsonKind.Boolean) throw new WireValidationException("hold must be boolean.");
                     return DecodeNeckTarget(root, requireCorrelation: true);
                 case WireValues.SafetyStop:
                     RequireExactFields(root, Fields("schema_version", "event_type", "gateway_monotonic_ns", "reason", "session_id", "sequence", "neck_action", "base_action", "arm_action"));
@@ -571,7 +572,6 @@ namespace Valera.VrGateway.Json
         }
         private static double Square(double value) { return value * value; }
         private static void RequireKnown(JsonValue value, string name, params string[] values) { string found = RequireString(value, name, null); foreach (string candidate in values) if (found == candidate) return; throw new WireValidationException(name + " has an unsupported value."); }
-        private static void RequireBoolean(JsonValue value, string name) { if (RequireMember(value, name).kind != JsonKind.Boolean) throw new WireValidationException(name + " must be boolean."); }
         private static HashSet<string> Fields(params string[] values) { return new HashSet<string>(values, StringComparer.Ordinal); }
         private static JsonValue RequireMember(JsonValue objectValue, string name) { JsonValue value; if (!objectValue.members.TryGetValue(name, out value)) throw new WireValidationException("Missing field: " + name); return value; }
         private static void RequireObject(JsonValue value, string context) { if (value == null || value.kind != JsonKind.Object) throw new WireValidationException(context + " must be an object."); }
