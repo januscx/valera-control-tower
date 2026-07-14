@@ -24,6 +24,34 @@ namespace Valera.VrGateway.Tests
             AssertVector(positive * Vector3.up, negative * Vector3.up);
         }
 
+        [TestCase(30f, 0f, 0f)]
+        [TestCase(-30f, 0f, 0f)]
+        [TestCase(0f, 20f, 0f)]
+        [TestCase(0f, -20f, 0f)]
+        [TestCase(0f, 0f, 45f)]
+        public void Convert_ReflectsYawPitchAndRollBasis(float yaw, float pitch, float roll)
+        {
+            Quaternion unity = Quaternion.AngleAxis(yaw, Vector3.up)
+                * Quaternion.AngleAxis(pitch, Vector3.right)
+                * Quaternion.AngleAxis(roll, Vector3.forward);
+            Quaternion openXr = Convert(unity);
+
+            AssertVector(openXr * new Vector3(0f, 0f, -1f), Reflect(unity * Vector3.forward));
+            AssertVector(openXr * Vector3.up, Reflect(unity * Vector3.up));
+        }
+
+        [Test]
+        public void Convert_PreservesRecenterRelativeOrientation()
+        {
+            Quaternion reference = Quaternion.AngleAxis(25f, Vector3.up);
+            Quaternion pose = Quaternion.AngleAxis(50f, Vector3.up) * Quaternion.AngleAxis(10f, Vector3.right);
+            Quaternion unityRelative = Quaternion.Inverse(reference) * pose;
+            Quaternion canonicalRelative = Quaternion.Inverse(Convert(reference)) * Convert(pose);
+
+            AssertVector(canonicalRelative * new Vector3(0f, 0f, -1f), Reflect(unityRelative * Vector3.forward));
+            AssertVector(canonicalRelative * Vector3.up, Reflect(unityRelative * Vector3.up));
+        }
+
         [Test]
         public void Convert_RejectsZeroQuaternion()
         {
@@ -42,6 +70,11 @@ namespace Valera.VrGateway.Tests
         private static void AssertVector(Vector3 actual, Vector3 expected)
         {
             Assert.That(Vector3.Distance(actual, expected), Is.LessThan(0.0001f));
+        }
+
+        private static Vector3 Reflect(Vector3 value)
+        {
+            return new Vector3(value.x, value.y, -value.z);
         }
     }
 }
