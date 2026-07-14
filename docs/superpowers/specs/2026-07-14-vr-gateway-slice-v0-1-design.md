@@ -268,6 +268,12 @@ timestamps.
 new session. `session.start` cannot leave `ESTOP_LATCHED`; it is rejected with
 `ESTOP_LATCHED`.
 
+`head.recenter` is also valid while already in `HEAD_ACTIVE`, so the operator
+can reset the relative zero without reconnecting. Active recenter emits no neck
+target, keeps the gateway in `HEAD_ACTIVE`, resets the pose/filter reference,
+and preserves the last commanded neck target as the rate-limiter seed. Because
+the state does not change, it emits no `gateway.state` event.
+
 ## Handshake Timeout And Motion Watchdog
 
 The gateway records `last_valid_packet_received_monotonic_ns` using an injected
@@ -386,6 +392,7 @@ Session and gateway tests cover:
 - HEAD-only mode and explicit DRIVE/ARM blocking
 - 10-second recenter handshake timeout with no actuator-stop event
 - recenter requirement before any target
+- active recenter preserves the last target and emits no target or state event
 - watchdog refresh only from valid packets
 - one-shot watchdog stop and mandatory new-session recovery
 - emergency stop without a session and despite stale ordering
