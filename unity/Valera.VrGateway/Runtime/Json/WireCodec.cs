@@ -538,7 +538,7 @@ namespace Valera.VrGateway.Json
         }
 
         private static void ValidateFinite(double value, string name) { if (!double.IsFinite(value)) throw new WireValidationException(name + " must be finite."); }
-        private static void RequireNonEmpty(string value, string name) { if (string.IsNullOrEmpty(value)) throw new WireValidationException(name + " must not be empty."); }
+        private static void RequireNonEmpty(string value, string name) { if (string.IsNullOrEmpty(value) || string.IsNullOrWhiteSpace(value)) throw new WireValidationException(name + " must not be empty or whitespace."); }
         private static void RequireKnownValue(string value, string name, params string[] values) { foreach (string candidate in values) if (value == candidate) return; throw new WireValidationException(name + " has an unsupported value."); }
         private static void RequireStringExact(string value, string name, string expected) { if (value != expected) throw new WireValidationException(name + " has an unsupported value."); }
         private static void RequireSequence(long value) { if (value < 1) throw new WireValidationException("sequence must be at least 1."); }
@@ -588,7 +588,7 @@ namespace Valera.VrGateway.Json
             if (expected != null && value.text != expected) throw new WireValidationException(name + " has an unsupported value.");
             return value.text;
         }
-        private static string RequireNonEmptyString(JsonValue objectValue, string name) { string text = RequireString(objectValue, name, null); if (text.Length == 0) throw new WireValidationException(name + " must not be empty."); return text; }
+        private static string RequireNonEmptyString(JsonValue objectValue, string name) { string text = RequireString(objectValue, name, null); if (text.Length == 0 || string.IsNullOrWhiteSpace(text)) throw new WireValidationException(name + " must not be empty or whitespace."); return text; }
         private static void RequireModeStringFromJson(JsonValue objectValue)
         {
             string mode = RequireString(objectValue, "mode", null);

@@ -23,9 +23,11 @@ unity/Valera.VrGateway/
     Valera.VrGateway.Runtime.Tests.asmdef
 ```
 
-Runtime code references only Unity's core `UnityEngine` value types and
-`JsonUtility`; it has no package dependencies. Tests use Unity Test Framework
-NUnit through the test assembly definition only. No Unity project is committed.
+Runtime code references only Unity's core `UnityEngine` value types in the
+OpenXR converter. All JSON encoding and decoding is performed by a dependency-free
+structural formatter. It has no package dependencies. Tests use Unity Test
+Framework NUnit through the test assembly definition only. No Unity project is
+committed.
 
 ## Wire models
 
@@ -52,29 +54,34 @@ mode string. Output rejection codes remain a closed, strict wire vocabulary.
 `sequence`, `timestamp_ms`, and `gateway_monotonic_ns` are `long`. Validation
 accepts only integer JSON literals in the range `0..Int64.MaxValue`. Fractional
 and exponent forms such as `1.0` and `1e3` are rejected even where their numeric
-value is integral. Overflow is detected by the structural parser before
-`JsonUtility` runs. Command `sequence` must be at least one. Session sequence
+value is integral. Overflow is detected by the structural parser before DTO
+construction. Command `sequence` must be at least one. Session sequence
 generation fails explicitly at `Int64.MaxValue`; it never wraps.
 
-### Output event root fields
+### Output event correlation
 
-Every output event has all of its listed root fields present exactly once; a
-missing field is never treated as a DTO default value.
+Every output event carries a `Correlation` value. `Correlation` is an explicit
+value type with `IsAvailable`, `SessionId`, and `Sequence` fields. `neck.target`
+requires `IsAvailable == true`; the other event types allow
+`Correlation.Unavailable`.
 
-| Event | Required non-null fields | Nullable fields |
+On the wire, `session_id` and `sequence` are always present. When correlation is
+unavailable, both are serialized as JSON `null`, matching the Python
+`dataclasses.asdict` output. When available, `session_id` is a non-empty,
+non-whitespace string and `sequence` is an integer literal at least one.
+Partial correlation (one field null and the other non-null) is rejected.
+
+| Event | Required non-null fields | Correlation |
 | --- | --- | --- |
-| `gateway.state` | `schema_version`, `event_type`, `gateway_monotonic_ns`, `state` | `session_id`, `sequence`; each may be JSON `null` independently when no related command identifier exists |
-| `neck.target` | `schema_version`, `event_type`, `gateway_monotonic_ns`, `session_id`, `sequence`, `pan_degrees`, `tilt_degrees`, `hold` | none |
-| `safety.stop` | `schema_version`, `event_type`, `gateway_monotonic_ns`, `reason`, `neck_action`, `base_action`, `arm_action` | `session_id`, `sequence`; each may be JSON `null` independently when unavailable |
-| `command.rejected` | `schema_version`, `event_type`, `gateway_monotonic_ns`, `code`, `message` | `session_id`, `sequence`; each may be JSON `null` independently when unavailable |
-
-When non-null, `session_id` must be a non-empty string and `sequence` must be
-an integer literal at least one. `neck.target` never permits a null identifier.
+| `gateway.state` | `schema_version`, `event_type`, `gateway_monotonic_ns`, `state` | optional; `null`/`null` when unavailable |
+| `neck.target` | `schema_version`, `event_type`, `gateway_monotonic_ns`, `session_id`, `sequence`, `pan_degrees`, `tilt_degrees`, `hold` | required; never unavailable |
+| `safety.stop` | `schema_version`, `event_type`, `gateway_monotonic_ns`, `reason`, `neck_action`, `base_action`, `arm_action` | optional; `null`/`null` when unavailable |
+| `command.rejected` | `schema_version`, `event_type`, `gateway_monotonic_ns`, `code`, `message` | optional; `null`/`null` when unavailable |
 
 ## Strict JSON boundary
 
-`JsonUtility` is not a trust boundary. Each decode first passes through a
-dependency-free structural validator which accepts JSON only when it has:
+`JsonUtility` is not used. Each decode first passes through a dependency-free
+structural validator which accepts JSON only when it has:
 
 - exactly the required and allowed root fields for its discriminator;
 - exactly the required and allowed payload fields for that command;
@@ -94,13 +101,16 @@ grammar; JSON extensions are never accepted.
 
 Decode proceeds in two passes:
 
-1. The validator parses a minimal header and validates its schema/discriminator.
-2. The discriminator chooses one exact DTO. The full JSON is deserialized into
-   that DTO with `JsonUtility`, then semantic validation checks IDs, bounds,
-   enum mappings, quaternion length, and pose frame.
+1. The structural parser validates the complete JSON shape, schema, and
+   discriminator.
+2. The discriminator chooses one exact DTO. The JSON is deserialized into that
+   DTO manually, then semantic validation checks IDs, bounds, enum mappings,
+   quaternion length, and pose frame.
 
-Serialization validates the DTO semantically before emitting JSON. Deserialization
-failure never creates a partially accepted command or event.
+Serialization validates the DTO semantically before emitting JSON. The encoder
+omits optional null fields (such as an absent `head.pose` position) and emits
+explicit `null` for unavailable correlation identifiers. Deserialization failure
+never creates a partially accepted command or event.
 
 ## OpenXR conversion
 
@@ -114,27 +124,32 @@ convention (`+Z` forward) into the canonical `quest_local` OpenXR convention
 zero-length or non-finite values. Quaternion/basis-vector fixtures are
 authoritative.
 
-Tests cover identity; positive and negative yaw/pitch; roll; normalization;
-the equivalence of `q` and `-q`; recenter-relative orientation; and forward
-basis conversion. The expected yaw/pitch signs match the Python gateway:
-positive relative yaw maps to positive pan and positive relative pitch maps to
-positive tilt. `q` and `-q` are equivalent rotations: tests compare transformed
-basis vectors or relative orientation, never raw quaternion components. The wire
-contract does not canonicalize quaternion signs.
+Tests cover identity; positive and negative yaw/pitch/roll; combined rotations;
+normalization; the equivalence of `q` and `-q`; zero relative orientation after
+recenter; signed recenter-relative yaw and pitch; transformed right, up, and
+forward basis vectors; and forward basis conversion. The expected yaw/pitch signs
+match the Python gateway: positive relative yaw maps to positive pan and positive
+relative pitch maps to positive tilt. `q` and `-q` are equivalent rotations:
+tests compare transformed basis vectors or relative orientation, never raw
+quaternion components. The wire contract does not canonicalize quaternion signs.
 
 ## Session helpers
 
-Session helpers create non-empty IDs and monotonically increasing `long`
-sequence values for one client session. They do not validate gateway safety,
-run timers, make network requests, or clear an emergency-stop latch.
+Session helpers create non-empty, non-whitespace IDs and monotonically
+increasing `long` sequence values for one client session. They do not validate
+gateway safety, run timers, make network requests, or clear an emergency-stop
+latch.
 
 ## Tests and validation
 
-NUnit fixtures include JSON round trips and negatives for missing, extra, and
-duplicate fields; wrong token types; `NaN`/infinity attempts; zero-length
-quaternions; unsupported schema; and unknown command, event, mode, and
-rejection code. Deterministic quaternion fixtures are copied from the Python
-gateway cases as literal data so the Unity package remains self-contained.
+NUnit fixtures include exhaustive JSON round trips for every command and event,
+plus strict negatives for missing, extra, and duplicate fields at every object
+level; wrong token types; `NaN`/infinity attempts; zero-length and non-finite
+quaternions; unsupported schema; unknown command, event, mode, and rejection
+code; null, empty, whitespace-only, and over-limit identifiers and modes; invalid
+integer grammar; and trailing data, comments, and malformed escapes.
+Deterministic quaternion fixtures are copied from the Python gateway cases as
+literal data so the Unity package remains self-contained.
 
 The package is validated in an ephemeral, untracked Unity test host project.
 That host is created outside the repository, imports this package by local path,
