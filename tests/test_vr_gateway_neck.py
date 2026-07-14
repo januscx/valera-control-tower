@@ -151,6 +151,8 @@ def test_active_recenter_retains_last_target():
         {"filter_time_constant_seconds": -0.1},
         {"max_pan_rate_degrees_per_second": 0.0},
         {"max_tilt_rate_degrees_per_second": -1.0},
+        {"initial_pan_degrees": 181.0},
+        {"initial_tilt_degrees": -91.0},
         {"min_pan_degrees": 2.0, "max_pan_degrees": 1.0},
         {"min_tilt_degrees": 2.0, "max_tilt_degrees": 1.0},
     ],

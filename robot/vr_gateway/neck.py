@@ -29,6 +29,10 @@ class NeckControlConfig:
             raise ValueError("minimum pan must not exceed maximum pan")
         if self.min_tilt_degrees > self.max_tilt_degrees:
             raise ValueError("minimum tilt must not exceed maximum tilt")
+        if not self.min_pan_degrees <= self.initial_pan_degrees <= self.max_pan_degrees:
+            raise ValueError("initial pan must be within mechanical limits")
+        if not self.min_tilt_degrees <= self.initial_tilt_degrees <= self.max_tilt_degrees:
+            raise ValueError("initial tilt must be within mechanical limits")
         if self.filter_time_constant_seconds < 0.0:
             raise ValueError("filter time constant must be non-negative")
         if self.max_pan_rate_degrees_per_second <= 0.0:

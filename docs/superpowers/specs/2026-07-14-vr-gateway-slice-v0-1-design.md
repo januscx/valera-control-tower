@@ -350,7 +350,9 @@ Invalid, non-finite, or zero-length quaternions are rejected with
 
 In simulation, the first pose after recenter starts rate limiting from an
 explicit simulation-only initial target, normally the configured simulated
-servo center. Recenter itself emits no target, preventing implicit movement.
+servo center. The configured initial target must be within the configured
+mechanical limits, so rate limiting never starts from an out-of-range target.
+Recenter itself emits no target, preventing implicit movement.
 When real servos are added, the initial target must come from validated actuator
 readback or the last confirmed command; hardware code must not assume
 `servo_center` is the physical starting position.
