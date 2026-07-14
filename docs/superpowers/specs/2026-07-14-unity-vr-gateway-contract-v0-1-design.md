@@ -43,8 +43,26 @@ to internal C# enums and rejects unknown values. C# enum serialization is never
 used for wire data.
 
 `sequence`, `timestamp_ms`, and `gateway_monotonic_ns` are `long`. Validation
-requires non-negative values and the command sequence requires a value of at
-least one.
+accepts only integer JSON literals in the range `0..Int64.MaxValue`. Fractional
+and exponent forms such as `1.0` and `1e3` are rejected even where their numeric
+value is integral. Overflow is detected by the structural parser before
+`JsonUtility` runs. Command `sequence` must be at least one. Session sequence
+generation fails explicitly at `Int64.MaxValue`; it never wraps.
+
+### Output event root fields
+
+Every output event has all of its listed root fields present exactly once; a
+missing field is never treated as a DTO default value.
+
+| Event | Required non-null fields | Nullable fields |
+| --- | --- | --- |
+| `gateway.state` | `schema_version`, `event_type`, `gateway_monotonic_ns`, `state` | `session_id`, `sequence`; each may be JSON `null` independently when no related command identifier exists |
+| `neck.target` | `schema_version`, `event_type`, `gateway_monotonic_ns`, `session_id`, `sequence`, `pan_degrees`, `tilt_degrees`, `hold` | none |
+| `safety.stop` | `schema_version`, `event_type`, `gateway_monotonic_ns`, `reason`, `neck_action`, `base_action`, `arm_action` | `session_id`, `sequence`; each may be JSON `null` independently when unavailable |
+| `command.rejected` | `schema_version`, `event_type`, `gateway_monotonic_ns`, `code`, `message` | `session_id`, `sequence`; each may be JSON `null` independently when unavailable |
+
+When non-null, `session_id` must be a non-empty string and `sequence` must be
+an integer literal at least one. `neck.target` never permits a null identifier.
 
 ## Strict JSON boundary
 
@@ -59,6 +77,14 @@ dependency-free structural validator which accepts JSON only when it has:
 - finite JSON numeric literals only; and
 - the exact schema version plus an approved command or event discriminator.
 
+The validator has fixed resource limits: input received as UTF-8 bytes may not
+exceed 65,536 bytes, and string input may not exceed 65,536 UTF-16 code units.
+No parsed object or array may exceed 16 nesting levels. Property names are
+decoded before duplicate detection, so `"x"` and `"\\u0078"` are duplicates.
+The parser rejects invalid Unicode escapes, malformed surrogate pairs, comments,
+trailing commas, and multiple root values. It accepts only standard JSON number
+grammar; JSON extensions are never accepted.
+
 Decode proceeds in two passes:
 
 1. The validator parses a minimal header and validates its schema/discriminator.
@@ -72,16 +98,22 @@ failure never creates a partially accepted command or event.
 ## OpenXR conversion
 
 The conversion module is a pure quaternion operation and does not read the XR
-runtime or use Euler angles. It converts Unity's left-handed pose convention
-(`+Z` forward) into the canonical `quest_local` OpenXR convention (`+X` right,
-`+Y` up, `-Z` forward), normalizes the result, and rejects zero-length or
-non-finite values. Quaternion/basis-vector fixtures are authoritative.
+runtime or use Euler angles. For a normalized Unity quaternion
+`q_unity = (x, y, z, w)`, it emits exactly
+`q_openxr = (-x, -y, z, w)`. This is the basis reflection `S = diag(1, 1, -1)`
+with `R_openxr = S * R_unity * S`. It converts Unity's left-handed pose
+convention (`+Z` forward) into the canonical `quest_local` OpenXR convention
+(`+X` right, `+Y` up, `-Z` forward), normalizes the result, and rejects
+zero-length or non-finite values. Quaternion/basis-vector fixtures are
+authoritative.
 
 Tests cover identity; positive and negative yaw/pitch; roll; normalization;
 the equivalence of `q` and `-q`; recenter-relative orientation; and forward
 basis conversion. The expected yaw/pitch signs match the Python gateway:
 positive relative yaw maps to positive pan and positive relative pitch maps to
-positive tilt.
+positive tilt. `q` and `-q` are equivalent rotations: tests compare transformed
+basis vectors or relative orientation, never raw quaternion components. The wire
+contract does not canonicalize quaternion signs.
 
 ## Session helpers
 
