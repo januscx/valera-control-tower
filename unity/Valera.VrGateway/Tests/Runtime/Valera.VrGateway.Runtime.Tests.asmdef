@@ -1,0 +1,21 @@
+{
+  "name": "Valera.VrGateway.Runtime.Tests",
+  "rootNamespace": "Valera.VrGateway.Tests",
+  "references": [
+    "Valera.VrGateway.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}
