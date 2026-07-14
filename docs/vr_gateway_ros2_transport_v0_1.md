@@ -174,18 +174,37 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/test_vr_gateway_wire.py
 These run the transport-neutral core and the ROS-free bridge logic. They open
 no ROS, network, base, arm, gripper, or real neck device.
 
+## Monotonic watchdog clock
+
+The gateway watchdog and handshake timeout use `time.monotonic_ns`, not ROS
+Time. ROS Time may pause or jump when `use_sim_time` is enabled or during
+rosbag playback; a steady monotonic clock ensures that simulated time, rosbag
+playback, or `/clock` pauses cannot stop watchdog evaluation. The poll timer
+is scheduled using `rclpy`'s steady timer (the default backing clock is
+steady), and the configured poll period is validated as finite and positive
+before the timer is created.
+
 ## ROS 2 smoke (requires an installed ROS 2 Jazzy)
 
-With ROS 2 Jazzy sourced and `std_msgs` available, build the node into your
-workspace and run it. The node logs `valera_vr_gateway ready: ...` and then only
-subscribes/publishes strings; it never moves equipment. A guarded hardware slice
-must be added separately with explicit safety notes.
+This repository has no ROS 2 package metadata or `ros2 run` entry point --
+that would require an `ament_python` package layout, `setup.py`,
+`package.xml`, and a colcon workspace. The node is invoked directly as a
+Python module under a sourced ROS 2 environment:
 
 ```bash
-ros2 run <your_package> vr_gateway_node
-ros2 topic pub /valera/vr_gateway/command std_msgs/msg/String '{data: "{\"schema_version\":\"0.1\",\"command\":\"emergency_stop\",\"session_id\":\"operator\",\"sequence\":1,\"timestamp_ms\":0,\"payload\":{}}"}' once
+# Source ROS 2 Jazzy first, then from the repository root:
+python3 -m robot.vr_gateway_ros.node
+
+# In another shell (ROS 2 sourced):
+ros2 topic pub /valera/vr_gateway/command std_msgs/msg/String \
+  '{data: "{\"schema_version\":\"0.1\",\"command\":\"emergency_stop\",\"session_id\":\"operator\",\"sequence\":1,\"timestamp_ms\":0,\"payload\":{}}"}' once
 ros2 topic echo /valera/vr_gateway/event
 ```
+
+The node logs `valera_vr_gateway ready: ...` and then only subscribes/publishes
+strings; it never moves equipment. A guarded hardware slice must be added
+separately with explicit safety notes. Adding `ament_python` package metadata
+is deferred until the repository structure warrants it.
 
 ## Limitations
 
@@ -197,3 +216,5 @@ ros2 topic echo /valera/vr_gateway/event
   suite does not exercise `robot/vr_gateway_ros/node.py`.
 - No `safety.reset` command exists; recovery from `ESTOP_LATCHED` still requires
   restarting the gateway process.
+- The repository has no ROS 2 package metadata (`package.xml`, `setup.py`,
+  colcon entry point); the node is invoked via `python3 -m robot.vr_gateway_ros.node`.

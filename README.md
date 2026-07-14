@@ -80,9 +80,11 @@ between ROS topics and the gateway; it owns no safety decisions.
 | publish | `/valera/vr_gateway/event` | `std_msgs/msg/String` (one message per event) |
 
 The node defaults to a 20 ms poll timer and uses the simulation neck
-configuration only. It never opens neck servos, the tracked base, or the
+configuration only. It uses `time.monotonic_ns` (not ROS Time) for watchdog
+and handshake deadlines so `/clock` pauses or sim time cannot stop safety
+evaluation. It never opens neck servos, the tracked base, or the
 SO-101 arm. See `docs/vr_gateway_ros2_transport_v0_1.md` for the full topic
-contract, JSON examples, and limitations.
+contract, JSON examples, monotonic-clock rationale, and limitations.
 
 Run the transport and bridge tests without an installed ROS:
 

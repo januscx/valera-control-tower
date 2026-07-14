@@ -1,7 +1,7 @@
 """ROS 2 node that bridges the VR gateway JSON contract to ROS topics.
 
- subscribing topic:  /valera/vr_gateway/command  (std_msgs/msg/String)
- publishing topic:    /valera/vr_gateway/event    (std_msgs/msg/String)
+subscribing topic:  /valera/vr_gateway/command  (std_msgs/msg/String)
+publishing topic:   /valera/vr_gateway/event    (std_msgs/msg/String)
 
 The node owns no safety decisions. The payload of every command message is a
 raw JSON string conforming to the v0.1 contract; it is decoded by
@@ -15,11 +15,21 @@ The node uses the *simulation* neck configuration only. It never opens real
 neck servos, the tracked base, or the SO-101 arm. A guarded hardware slice must
 be added separately with explicit safety notes.
 
+Monotonic clock: the gateway watchdog and handshake timeout use ``time.monotonic_ns``,
+not ROS Time. ROS Time may pause or jump when ``use_sim_time`` is enabled or
+during rosbag playback; a steady monotonic clock ensures that simulated time,
+rosbag playback, or ``/clock`` pauses cannot stop watchdog evaluation. The poll
+timer is also scheduled on a steady wall-clock via ``create_timer`` (rclpy timers
+use a steady clock by default, but we additionally guard that the poll period is
+finite and positive before creating the timer).
+
 ROS 2 imports here are deliberate and isolated to this module; the rest of
 ``robot.vr_gateway_ros`` and the whole ``robot.vr_gateway`` core package remain
 importable without an installed ROS.
 """
 from __future__ import annotations
+
+import time
 
 import rclpy
 from rclpy.node import Node
@@ -31,6 +41,23 @@ from robot.vr_gateway_ros.handlers import VrGatewayBridge
 DEFAULT_COMMAND_TOPIC = "/valera/vr_gateway/command"
 DEFAULT_EVENT_TOPIC = "/valera/vr_gateway/event"
 DEFAULT_POLL_PERIOD_MS = 20
+MAX_POLL_PERIOD_MS = 60_000
+
+
+def _validate_topic(value: object, name: str) -> str:
+    if type(value) is not str or not value:
+        raise ValueError(f"{name} must be a non-empty string")
+    return value
+
+
+def _validate_poll_period_ms(value: object) -> int:
+    if type(value) is not int:
+        raise ValueError("poll_period_ms must be an integer")
+    if value <= 0:
+        raise ValueError("poll_period_ms must be positive")
+    if value > MAX_POLL_PERIOD_MS:
+        raise ValueError(f"poll_period_ms must not exceed {MAX_POLL_PERIOD_MS}")
+    return value
 
 
 class VrGatewayNode(Node):
@@ -41,14 +68,17 @@ class VrGatewayNode(Node):
         self.declare_parameter("event_topic", DEFAULT_EVENT_TOPIC)
         self.declare_parameter("poll_period_ms", DEFAULT_POLL_PERIOD_MS)
 
-        command_topic = self.get_parameter("command_topic").value
-        event_topic = self.get_parameter("event_topic").value
-        poll_period_ms = self.get_parameter("poll_period_ms").value
-
-        ros_clock = self.get_clock()
-        self._gateway = build_simulated_vr_gateway(
-            lambda: ros_clock.now().nanoseconds
+        command_topic = _validate_topic(
+            self.get_parameter("command_topic").value, "command_topic"
         )
+        event_topic = _validate_topic(
+            self.get_parameter("event_topic").value, "event_topic"
+        )
+        poll_period_ms = _validate_poll_period_ms(
+            self.get_parameter("poll_period_ms").value
+        )
+
+        self._gateway = build_simulated_vr_gateway(time.monotonic_ns)
 
         self._publisher = self.create_publisher(String, event_topic, 10)
         self._bridge = VrGatewayBridge(self._gateway, self._publish_event)
@@ -56,12 +86,12 @@ class VrGatewayNode(Node):
         self.create_subscription(String, command_topic, self._on_command, 10)
         self.create_timer(poll_period_ms / 1000.0, self._bridge.poll)
 
-        self.get_logger().info(
-            "valera_vr_gateway ready: command=%s event=%s poll=%dms (sim neck)",
-            command_topic,
-            event_topic,
-            poll_period_ms,
+        message = (
+            f"valera_vr_gateway ready: command={command_topic} "
+            f"event={event_topic} poll={poll_period_ms}ms (sim neck, "
+            "monotonic watchdog clock)"
         )
+        self.get_logger().info(message)
 
     def _publish_event(self, event_json: str) -> None:
         message = String()

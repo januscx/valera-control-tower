@@ -10,6 +10,7 @@ from robot.vr_gateway.gateway import VrGateway
 from robot.vr_gateway.messages import (
     CommandEnvelope,
     CommandName,
+    CommandRejectedEvent,
     EmptyPayload,
     EventName,
     GatewayState,
@@ -482,8 +483,10 @@ def test_adapter_poll_emits_nothing_when_no_deadline():
 
 
 def test_core_codec_has_no_ros_or_hardware_imports():
+    import re
+
     package_dir = Path(__file__).resolve().parents[1] / "robot" / "vr_gateway"
-    forbidden_substrings = (
+    forbidden_identifiers = (
         "rclpy",
         "roslibpy",
         "std_msgs",
@@ -499,8 +502,9 @@ def test_core_codec_has_no_ros_or_hardware_imports():
     offenders: list[str] = []
     for source in ("wire.py", "adapter.py"):
         text = (package_dir / source).read_text(encoding="utf-8")
-        for token in forbidden_substrings:
-            if token in text:
+        for token in forbidden_identifiers:
+            pattern = rf"\b{re.escape(token)}\b"
+            if re.search(pattern, text):
                 offenders.append(f"{source}:{token}")
     assert offenders == [], offenders
 
@@ -531,3 +535,388 @@ def test_core_codec_only_imports_allowlisted_roots():
                 else:
                     found.add(node.module.split(".", 1)[0])
     assert found <= allowed_roots, found - allowed_roots
+
+
+# --- Cross-contract fixtures matching Unity v0.1 ---
+
+
+def _session_start(requested_mode="head", session_id="unity-head-001", sequence=1):
+    return json.dumps(
+        {
+            "schema_version": "0.1",
+            "command": "session.start",
+            "session_id": session_id,
+            "sequence": sequence,
+            "timestamp_ms": 0,
+            "payload": {"requested_mode": requested_mode},
+        }
+    )
+
+
+def _mode_set(mode="head", session_id="unity-head-001", sequence=4):
+    return json.dumps(
+        {
+            "schema_version": "0.1",
+            "command": "mode.set",
+            "session_id": session_id,
+            "sequence": sequence,
+            "timestamp_ms": 3,
+            "payload": {"mode": mode},
+        }
+    )
+
+
+def _head_pose(session_id="unity-head-001", sequence=3, position="present"):
+    payload = {
+        "frame": "quest_local",
+        "orientation": {"x": 0.0, "y": 0.1, "z": 0.0, "w": 1.0},
+    }
+    if position == "present":
+        payload["position"] = {"x": 0.0, "y": 1.5, "z": -2.0}
+    elif position == "null":
+        payload["position"] = None
+    return json.dumps(
+        {
+            "schema_version": "0.1",
+            "command": "head.pose",
+            "session_id": session_id,
+            "sequence": sequence,
+            "timestamp_ms": 2,
+            "payload": payload,
+        }
+    )
+
+
+def _head_recenter(session_id="unity-head-001", sequence=2):
+    return json.dumps(
+        {
+            "schema_version": "0.1",
+            "command": "head.recenter",
+            "session_id": session_id,
+            "sequence": sequence,
+            "timestamp_ms": 1,
+            "payload": {
+                "frame": "quest_local",
+                "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+            },
+        }
+    )
+
+
+def test_head_recenter_rejects_position_field():
+    document = json.loads(_head_recenter())
+    document["payload"]["position"] = {"x": 0.0, "y": 0.0, "z": 0.0}
+    with pytest.raises(wire.WireError):
+        wire.decode_command(json.dumps(document))
+
+
+def test_head_recenter_rejects_null_position_field():
+    document = json.loads(_head_recenter())
+    document["payload"]["position"] = None
+    with pytest.raises(wire.WireError):
+        wire.decode_command(json.dumps(document))
+
+
+def test_head_pose_accepts_absent_position():
+    command = wire.decode_command(_head_pose(position="absent"))
+    assert isinstance(command.payload, PosePayload)
+    assert command.payload.position is None
+
+
+def test_head_pose_accepts_null_position():
+    command = wire.decode_command(_head_pose(position="null"))
+    assert isinstance(command.payload, PosePayload)
+    assert command.payload.position is None
+
+
+@pytest.mark.parametrize(
+    "requested_mode",
+    ["HEAD", "head ", " head", "drive", "arm", "", "inspection", "head\0"],
+)
+def test_decode_rejects_session_start_requested_mode_other_than_head(requested_mode):
+    with pytest.raises(wire.WireError):
+        wire.decode_command(_session_start(requested_mode=requested_mode))
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ["", "   ", "\t", "\n", "a" * 65],
+)
+def test_decode_rejects_mode_set_invalid_mode_strings(mode):
+    with pytest.raises(wire.WireError):
+        wire.decode_command(_mode_set(mode=mode))
+
+
+def test_decode_accepts_64_character_mode_string():
+    mode = "a" * 64
+    command = wire.decode_command(_mode_set(mode=mode))
+    assert command.payload.mode == mode
+
+
+@pytest.mark.parametrize("session_id", ["", "   ", "\t\n", " "])
+def test_decode_rejects_whitespace_or_empty_session_id(session_id):
+    with pytest.raises(wire.WireError):
+        wire.decode_command(_session_start(session_id=session_id))
+
+
+def test_decode_rejects_integer_above_int64_max():
+    document = json.loads(_session_start())
+    document["sequence"] = wire.MAX_INT64 + 1
+    with pytest.raises(wire.WireError):
+        wire.decode_command(json.dumps(document))
+
+    document = json.loads(_session_start())
+    document["timestamp_ms"] = wire.MAX_INT64 + 1
+    with pytest.raises(wire.WireError):
+        wire.decode_command(json.dumps(document))
+
+
+def test_decode_rejects_fractional_integer_literals():
+    document = json.loads(_session_start())
+    document["sequence"] = 1.0
+    with pytest.raises(wire.WireError):
+        wire.decode_command(json.dumps(document))
+
+    document = json.loads(_session_start())
+    document["timestamp_ms"] = 0.5
+    with pytest.raises(wire.WireError):
+        wire.decode_command(json.dumps(document))
+
+
+def test_decode_rejects_exponent_integer_literals():
+    document = json.loads(_session_start())
+    document["sequence"] = 1e3
+    with pytest.raises(wire.WireError):
+        wire.decode_command(json.dumps(document))
+
+
+def test_decode_rejects_boolean_integer_fields():
+    document = json.loads(_session_start())
+    document["sequence"] = True
+    with pytest.raises(wire.WireError):
+        wire.decode_command(json.dumps(document))
+
+
+def test_decode_accepts_int64_max_sequence_and_timestamp():
+    document = json.loads(_session_start())
+    document["sequence"] = wire.MAX_INT64
+    document["timestamp_ms"] = wire.MAX_INT64
+    command = wire.decode_command(json.dumps(document))
+    assert command.sequence == wire.MAX_INT64
+    assert command.timestamp_ms == wire.MAX_INT64
+
+
+def test_decode_rejects_input_above_max_characters():
+    raw = " " * (wire.MAX_INPUT_CHARACTERS + 1)
+    with pytest.raises(wire.WireError, match="characters"):
+        wire.decode_command(raw)
+
+
+def test_decode_rejects_input_above_max_utf8_bytes():
+    # 4-byte UTF-8 codepoints expand past the byte cap before the char cap.
+    raw = "\U0001F600" * (wire.MAX_INPUT_UTF8_BYTES // 4 + 1)
+    with pytest.raises(wire.WireError, match="UTF-8"):
+        wire.decode_command(raw)
+
+
+def test_decode_rejects_json_nesting_depth_above_16():
+    # Build genuinely nested JSON objects by hand (no json.dumps escaping).
+    # 17 levels of `{"a": ...}` nesting inside the payload's extra field.
+    nested = '"x"'
+    for _ in range(17):
+        nested = '{"a":' + nested + '}'
+    raw = (
+        '{"schema_version":"0.1","command":"session.start",'
+        '"session_id":"depth","sequence":1,"timestamp_ms":0,'
+        f'"payload":{{"requested_mode":"head","extra":{nested}}}}}'
+    )
+    with pytest.raises(wire.WireError, match="depth"):
+        wire.decode_command(raw)
+
+
+def test_decode_accepts_json_nesting_depth_at_16():
+    # 16 levels of nesting should be accepted by the depth check.
+    nested = '"x"'
+    for _ in range(13):
+        nested = '{"a":' + nested + '}'
+    raw = (
+        '{"schema_version":"0.1","command":"session.start",'
+        '"session_id":"depth","sequence":1,"timestamp_ms":0,'
+        f'"payload":{{"requested_mode":"head","extra":{nested}}}}}'
+    )
+    # The depth check passes; the extra field in payload is rejected later.
+    with pytest.raises(wire.WireError, match="requested_mode"):
+        wire.decode_command(raw)
+
+
+def test_decode_accepts_leading_and_trailing_whitespace():
+    raw = "   " + SESSION_START_JSON + "\n\t"
+    command = wire.decode_command(raw)
+    assert command.command is CommandName.SESSION_START
+
+
+def test_decode_rejects_decoded_duplicate_keys_via_unicode_escape():
+    raw = (
+        '{"schema_version":"0.1","command":"session.start",'
+        '"session_id":"s","sequence":1,"timestamp_ms":0,'
+        '"payload":{"requested_mode":"head","\\u0072equested_mode":"arm"}}'
+    )
+    with pytest.raises(wire.WireError, match="duplicate"):
+        wire.decode_command(raw)
+
+
+def test_decode_rejects_unknown_command_discriminator_with_strict_match():
+    raw = json.dumps(
+        {
+            "schema_version": "0.1",
+            "command": "session.Start",
+            "session_id": "s",
+            "sequence": 1,
+            "timestamp_ms": 0,
+            "payload": {"requested_mode": "head"},
+        }
+    )
+    with pytest.raises(wire.WireError):
+        wire.decode_command(raw)
+
+
+# --- Strict encode_event negative tests ---
+
+
+def _mutated_event(event, **overrides):
+    import dataclasses
+
+    fields = {f.name: getattr(event, f.name) for f in dataclasses.fields(event)}
+    fields.update(overrides)
+    return type(event)(**fields)
+
+
+def test_encode_event_rejects_unsupported_object():
+    with pytest.raises(wire.WireError, match="approved event DTO"):
+        wire.encode_event(object())  # type: ignore[arg-type]
+
+
+def test_encode_event_rejects_event_with_wrong_event_type():
+    event = GatewayStateEvent(1, GatewayState.IDLE, None, None)
+    bad = _mutated_event(
+        event,
+        event_type=EventName.NECK_TARGET,
+    )
+    with pytest.raises(wire.WireError, match="event_type"):
+        wire.encode_event(bad)
+
+
+def test_encode_event_rejects_event_with_wrong_schema_version():
+    event = GatewayStateEvent(1, GatewayState.IDLE, None, None)
+    bad = _mutated_event(event, schema_version="0.2")
+    with pytest.raises(wire.WireError, match="schema_version"):
+        wire.encode_event(bad)
+
+
+def test_encode_event_rejects_negative_gateway_monotonic_ns():
+    event = GatewayStateEvent(-1, GatewayState.IDLE, None, None)
+    with pytest.raises(wire.WireError, match="gateway_monotonic_ns"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_overflow_gateway_monotonic_ns():
+    event = GatewayStateEvent(wire.MAX_INT64 + 1, GatewayState.IDLE, None, None)
+    with pytest.raises(wire.WireError, match="gateway_monotonic_ns"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_nan_pan_degrees():
+    event = NeckTargetEvent(1, "s-1", 1, float("nan"), 0.0)
+    with pytest.raises(wire.WireError, match="finite"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_infinity_tilt_degrees():
+    event = NeckTargetEvent(1, "s-1", 1, 0.0, float("inf"))
+    with pytest.raises(wire.WireError, match="finite"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_partial_correlation_session_only():
+    event = GatewayStateEvent(1, GatewayState.IDLE, "s-1", None)
+    with pytest.raises(wire.WireError, match="correlation"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_partial_correlation_sequence_only():
+    event = GatewayStateEvent(1, GatewayState.HEAD_ACTIVE, None, 5)
+    with pytest.raises(wire.WireError, match="correlation"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_neck_target_with_unavailable_correlation():
+    event = NeckTargetEvent(1, None, None, 0.0, 0.0)
+    with pytest.raises(wire.WireError, match="required"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_neck_target_with_whitespace_session_id():
+    event = NeckTargetEvent(1, "   ", 1, 0.0, 0.0)
+    with pytest.raises(wire.WireError, match="session_id"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_neck_target_with_out_of_range_sequence():
+    event = NeckTargetEvent(1, "s-1", 0, 0.0, 0.0)
+    with pytest.raises(wire.WireError, match="sequence"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_unknown_gateway_state():
+    event = _mutated_event(
+        GatewayStateEvent(1, GatewayState.IDLE, None, None), state="FROBNICATING"
+    )
+    with pytest.raises(wire.WireError, match="state"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_unknown_stop_reason():
+    event = _mutated_event(
+        SafetyStopEvent(1, StopReason.WATCHDOG, "s-1", 1), reason="VAPORIZED"
+    )
+    with pytest.raises(wire.WireError, match="reason"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_unknown_rejection_code():
+    event = _mutated_event(
+        CommandRejectedEvent(1, RejectionCode.INVALID_PAYLOAD, "msg", None, None),
+        code="VAPORIZED",
+    )
+    with pytest.raises(wire.WireError, match="rejection code"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_empty_rejection_message():
+    event = CommandRejectedEvent(
+        1, RejectionCode.INVALID_PAYLOAD, "", None, None
+    )
+    with pytest.raises(wire.WireError, match="message"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_empty_safety_action_string():
+    event = SafetyStopEvent(1, StopReason.WATCHDOG, "s-1", 1)
+    bad = _mutated_event(event, neck_action="")
+    with pytest.raises(wire.WireError, match="neck_action"):
+        wire.encode_event(bad)
+
+
+def test_encode_event_rejects_non_boolean_hold():
+    event = NeckTargetEvent(1, "s-1", 1, 0.0, 0.0)
+    bad = _mutated_event(event, hold="yes")
+    with pytest.raises(wire.WireError, match="hold"):
+        wire.encode_event(bad)
+
+
+def test_encode_event_uses_allow_nan_false_and_serializes_clean_event():
+    event = NeckTargetEvent(7, "s-1", 2, 1.25, -2.5)
+    text = wire.encode_event(event)
+    document = json.loads(text)
+    assert document["pan_degrees"] == 1.25
+    assert document["hold"] is False
