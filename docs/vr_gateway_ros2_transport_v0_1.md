@@ -88,14 +88,17 @@ Approved commands and payloads:
 | `session.stop` | `{}` |
 | `mode.set` | `{"mode": "head"}` (`drive` / `arm` return `MODE_BLOCKED`, unknown values return `UNKNOWN_MODE`) |
 | `head.pose` | `{"frame":"quest_local","orientation":{"x","y","z","w"},"position":{"x","y","z"}}` (`position` optional or null) |
-| `head.recenter` | `{"frame":"quest_local","orientation":{"x","y","z","w"}}` (`position` optional or null) |
+| `head.recenter` | `{"frame":"quest_local","orientation":{"x","y","z","w"}}` (`position` forbidden, including null) |
 | `emergency_stop` | `{}` |
 
-Strict decode rules: duplicate keys, `NaN`/`Infinity` literals, trailing data,
-missing/extra fields, wrong types, and unknown command discriminators are all
-rejected. Decode failures are routed through `VrGateway.handle`, so the gateway
-emits the `INVALID_PAYLOAD` rejection (plus any elapsed-deadline events) through
-its existing fail-closed path. The adapter never synthesizes a safety event.
+Strict decode rules: duplicate keys (including decoded unicode-escaped
+variants), malformed Unicode surrogates, `NaN`/`Infinity` literals, trailing
+data, missing/extra fields, wrong types, integer overflow, boolean/fractional
+integer literals, nesting depth above 16, input size above 65,536 characters
+or bytes, and unknown command discriminators are all rejected. Decode failures
+are routed through `VrGateway.handle`, so the gateway emits the
+`INVALID_PAYLOAD` rejection (plus any elapsed-deadline events) through its
+existing fail-closed path. The adapter never synthesizes a safety event.
 
 ### Output events
 
@@ -180,9 +183,10 @@ The gateway watchdog and handshake timeout use `time.monotonic_ns`, not ROS
 Time. ROS Time may pause or jump when `use_sim_time` is enabled or during
 rosbag playback; a steady monotonic clock ensures that simulated time, rosbag
 playback, or `/clock` pauses cannot stop watchdog evaluation. The poll timer
-is scheduled using `rclpy`'s steady timer (the default backing clock is
-steady), and the configured poll period is validated as finite and positive
-before the timer is created.
+is scheduled on an explicit `rclpy.clock.Clock(clock_type=ClockType.STEADY_TIME)`
+instead of the node's default clock, which may be a ROSClock under sim time.
+The configured poll period is validated as finite and positive before the
+timer is created.
 
 ## ROS 2 smoke (requires an installed ROS 2 Jazzy)
 

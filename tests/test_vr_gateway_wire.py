@@ -537,6 +537,217 @@ def test_core_codec_only_imports_allowlisted_roots():
     assert found <= allowed_roots, found - allowed_roots
 
 
+# --- Unicode surrogate handling ---
+
+
+def test_decode_accepts_valid_surrogate_pair():
+    # \uD83E\uDD16 -> 🤖
+    raw = (
+        '{"schema_version":"0.1","command":"session.start",'
+        '"session_id":"\\uD83E\\uDD16","sequence":1,"timestamp_ms":0,'
+        '"payload":{"requested_mode":"head"}}'
+    )
+    command = wire.decode_command(raw)
+    assert command.session_id == "🤖"
+
+
+def test_decode_accepts_raw_non_bmp_character_within_size_limits():
+    raw = (
+        '{"schema_version":"0.1","command":"session.start",'
+        '"session_id":"🤖","sequence":1,"timestamp_ms":0,'
+        '"payload":{"requested_mode":"head"}}'
+    )
+    command = wire.decode_command(raw)
+    assert command.session_id == "🤖"
+
+
+@pytest.mark.parametrize(
+    "bad_string",
+    [
+        "\\uD800",  # lone high surrogate
+        "\\uDC00",  # lone low surrogate
+        "\\uD83E\\u0041",  # high surrogate followed by normal char
+        "\\uD83E\\uD83E",  # high/high
+        "\\uDD16\\uDD16",  # low/low
+    ],
+)
+def test_decode_rejects_lone_and_malformed_surrogates_in_values(bad_string):
+    raw = (
+        '{"schema_version":"0.1","command":"session.start",'
+        f'"session_id":"{bad_string}","sequence":1,"timestamp_ms":0,'
+        '"payload":{"requested_mode":"head"}}'
+    )
+    with pytest.raises(wire.WireError, match="surrogate"):
+        wire.decode_command(raw)
+
+
+def test_decode_rejects_malformed_surrogate_in_object_key():
+    raw = (
+        '{"schema_version":"0.1","command":"session.start",'
+        '"session_id":"s","sequence":1,"timestamp_ms":0,'
+        '"payload":{"\\uD800requested_mode":"head"}}'
+    )
+    with pytest.raises(wire.WireError, match="surrogate"):
+        wire.decode_command(raw)
+
+
+def test_decode_rejects_malformed_surrogate_in_nested_list():
+    raw = (
+        '{"schema_version":"0.1","command":"session.start",'
+        '"session_id":"s","sequence":1,"timestamp_ms":0,'
+        '"payload":{"requested_mode":"head","extra":["\\uD800"]}}'
+    )
+    with pytest.raises(wire.WireError, match="surrogate"):
+        wire.decode_command(raw)
+
+
+# --- JSON depth scanner ---
+
+
+def _build_nested_json(extra_depth: int, kind: str = "object") -> str:
+    """Build raw JSON whose total nesting depth is 3 + ``extra_depth``.
+
+    The fixed envelope contributes 3 levels (envelope, payload, extra field).
+    ``extra_depth`` is the number of additional nested objects/arrays inside
+    the extra field, so the total depth is exactly ``3 + extra_depth``.
+    """
+    if kind == "object":
+        inner = '"x"'
+        for _ in range(extra_depth):
+            inner = '{"a":' + inner + '}'
+    else:
+        inner = "1"
+        for _ in range(extra_depth):
+            inner = "[" + inner + "]"
+    return (
+        '{"schema_version":"0.1","command":"session.start",'
+        '"session_id":"depth","sequence":1,"timestamp_ms":0,'
+        f'"payload":{{"requested_mode":"head","extra":{inner}}}}}'
+    )
+
+
+def test_decode_accepts_nesting_depth_of_16():
+    # 3 fixed levels + 13 nested objects = total depth 16.
+    raw = _build_nested_json(13)
+    # Depth is fine; the extra field in payload is rejected later.
+    with pytest.raises(wire.WireError, match="requested_mode"):
+        wire.decode_command(raw)
+
+
+def test_decode_rejects_nesting_depth_of_17():
+    raw = _build_nested_json(14)
+    with pytest.raises(wire.WireError, match="depth"):
+        wire.decode_command(raw)
+
+
+def test_decode_rejects_deeply_nested_arrays_without_recursion_error():
+    raw = _build_nested_json(997, kind="array")
+    with pytest.raises(wire.WireError, match="depth"):
+        wire.decode_command(raw)
+
+
+def test_decode_depth_scanner_ignores_brackets_inside_strings():
+    # Brackets are embedded inside JSON strings; the depth scanner must ignore
+    # them. A valid mode.set with a bracket-containing mode string is used.
+    raw = (
+        '{"schema_version":"0.1","command":"mode.set",'
+        '"session_id":"s","sequence":2,"timestamp_ms":1,'
+        '"payload":{"mode":"{[[]]}[[["}}'
+    )
+    command = wire.decode_command(raw)
+    assert command.payload.mode == "{[[]]}[[["
+
+
+def test_decode_depth_scanner_handles_escaped_quotes_inside_strings():
+    # The JSON string value contains an escaped quote: mode\".
+    # Use mode.set so the bracket-free value is accepted by the wire codec.
+    raw = (
+        '{"schema_version":"0.1","command":"mode.set",'
+        '"session_id":"s","sequence":2,"timestamp_ms":1,'
+        '"payload":{"mode":"head\\""}}'
+    )
+    command = wire.decode_command(raw)
+    assert command.payload.mode == 'head"'
+
+
+def test_decode_rejects_unbalanced_brackets_in_depth_scanner():
+    raw = (
+        '{"schema_version":"0.1","command":"session.start",'
+        '"session_id":"s","sequence":1,"timestamp_ms":0,'
+        '"payload":"}}"}'
+    )
+    with pytest.raises(wire.WireError, match="brackets|JSON"):
+        wire.decode_command(raw)
+
+
+# --- Exact enum types and whitespace strings ---
+
+
+def test_encode_event_rejects_plain_string_for_state_enum():
+    event = _mutated_event(
+        GatewayStateEvent(1, GatewayState.IDLE, None, None), state="IDLE"
+    )
+    with pytest.raises(wire.WireError, match="GatewayState"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_plain_string_for_stop_reason_enum():
+    event = _mutated_event(
+        SafetyStopEvent(1, StopReason.WATCHDOG, "s-1", 1), reason="WATCHDOG"
+    )
+    with pytest.raises(wire.WireError, match="StopReason"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_plain_string_for_rejection_code_enum():
+    event = _mutated_event(
+        CommandRejectedEvent(1, RejectionCode.INVALID_PAYLOAD, "msg", None, None),
+        code="INVALID_PAYLOAD",
+    )
+    with pytest.raises(wire.WireError, match="RejectionCode"):
+        wire.encode_event(event)
+
+
+def test_encode_event_rejects_plain_string_for_event_type_enum():
+    event = _mutated_event(
+        GatewayStateEvent(1, GatewayState.IDLE, None, None),
+        event_type="gateway.state",
+    )
+    with pytest.raises(wire.WireError, match="event_type"):
+        wire.encode_event(event)
+
+
+@pytest.mark.parametrize("message", ["", "   ", "\t", "\n"])
+def test_encode_event_rejects_whitespace_only_rejection_message(message):
+    event = _mutated_event(
+        CommandRejectedEvent(1, RejectionCode.INVALID_PAYLOAD, "msg", None, None),
+        message=message,
+    )
+    with pytest.raises(wire.WireError, match="message"):
+        wire.encode_event(event)
+
+
+@pytest.mark.parametrize("action", ["", "   ", "\t", "\n"])
+def test_encode_event_rejects_whitespace_only_safety_action_strings(action):
+    event = _mutated_event(
+        SafetyStopEvent(1, StopReason.WATCHDOG, "s-1", 1),
+        neck_action=action,
+    )
+    with pytest.raises(wire.WireError, match="neck_action"):
+        wire.encode_event(event)
+
+
+def test_decode_rejects_boolean_values_for_pose_numeric_fields():
+    raw = (
+        '{"schema_version":"0.1","command":"head.pose",'
+        '"session_id":"s","sequence":3,"timestamp_ms":2,'
+        '"payload":{"frame":"quest_local",'
+        '"orientation":{"x":true,"y":0,"z":0,"w":1}}}'
+    )
+    with pytest.raises(wire.WireError, match="finite JSON numbers"):
+        wire.decode_command(raw)
+
+
 # --- Cross-contract fixtures matching Unity v0.1 ---
 
 
@@ -879,7 +1090,7 @@ def test_encode_event_rejects_unknown_stop_reason():
     event = _mutated_event(
         SafetyStopEvent(1, StopReason.WATCHDOG, "s-1", 1), reason="VAPORIZED"
     )
-    with pytest.raises(wire.WireError, match="reason"):
+    with pytest.raises(wire.WireError, match="StopReason"):
         wire.encode_event(event)
 
 
@@ -888,7 +1099,7 @@ def test_encode_event_rejects_unknown_rejection_code():
         CommandRejectedEvent(1, RejectionCode.INVALID_PAYLOAD, "msg", None, None),
         code="VAPORIZED",
     )
-    with pytest.raises(wire.WireError, match="rejection code"):
+    with pytest.raises(wire.WireError, match="RejectionCode"):
         wire.encode_event(event)
 
 

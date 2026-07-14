@@ -89,10 +89,6 @@ _EVENT_BY_NAME: dict[str, type] = {
     EventName.SAFETY_STOP.value: SafetyStopEvent,
     EventName.COMMAND_REJECTED.value: CommandRejectedEvent,
 }
-_STATE_BY_VALUE = {state.value: state for state in GatewayState}
-_STOP_REASON_BY_VALUE = {reason.value: reason for reason in StopReason}
-_REJECTION_CODE_BY_VALUE = {code.value: code for code in RejectionCode}
-_EVENT_TYPE_BY_VALUE = {event.value: event for event in EventName}
 
 _ENVELOPE_KEYS = frozenset(
     {
@@ -326,6 +322,10 @@ def _validate_int_field(value: object, name: str, *, minimum: int) -> None:
 
 
 def _parse_json(raw: str) -> object:
+    # Defensive pre-scan: bound nesting depth before the stdlib decoder can
+    # raise RecursionError on pathological input.
+    _check_nesting_depth(raw)
+
     decoder = json.JSONDecoder(
         object_pairs_hook=_reject_duplicate_keys,
         parse_constant=_reject_constant,
@@ -339,9 +339,15 @@ def _parse_json(raw: str) -> object:
         obj, end = decoder.raw_decode(raw, start)
     except json.JSONDecodeError as exc:
         raise WireError(str(exc)) from exc
+    except RecursionError as exc:
+        raise WireError("JSON recursion depth exceeded") from exc
     if raw[end:].strip():
         raise WireError("trailing data after JSON document")
-    _check_depth(obj, depth=1)
+    try:
+        _check_depth(obj, depth=1)
+        _reject_surrogates(obj)
+    except RecursionError as exc:
+        raise WireError("JSON recursion depth exceeded") from exc
     return obj
 
 
@@ -373,6 +379,68 @@ def _reject_constant(value: str) -> object:
     raise WireError(f"invalid JSON literal {value!r}")
 
 
+def _check_nesting_depth(raw: str) -> None:
+    """Pre-scan raw JSON for structural nesting depth (strings excluded).
+
+    Counts '{'/'[' opening and '}'/']' closing brackets outside of JSON
+    strings, ignoring escaped quotes and backslashes. Rejects depth greater
+    than ``MAX_JSON_DEPTH`` with ``WireError`` before the real parser runs,
+    preventing ``RecursionError`` from pathological input.
+    """
+    depth = 0
+    max_depth = 0
+    in_string = False
+    escape = False
+    for char in raw:
+        if escape:
+            escape = False
+            continue
+        if char == "\\":
+            escape = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char in "{[":
+            depth += 1
+            max_depth = max(max_depth, depth)
+            if max_depth > MAX_JSON_DEPTH:
+                raise WireError("JSON nesting depth exceeds 16")
+        elif char in "}]":
+            depth -= 1
+            if depth < 0:
+                # Malformed; let the real decoder report the syntax error,
+                # but stop the scan now that structure is broken.
+                raise WireError("unbalanced JSON brackets")
+
+
+def _reject_surrogates(node: object) -> None:
+    """Recursively reject decoded strings containing surrogate code points.
+
+    Python's json decoder accepts lone surrogates (e.g. \\uD800) and malformed
+    surrogate sequences. The Unity contract rejects them; this post-decode
+    scan ensures Python does too.
+    """
+    if type(node) is str:
+        for codepoint in (ord(ch) for ch in node):
+            if 0xD800 <= codepoint <= 0xDFFF:
+                raise WireError("malformed Unicode surrogate in decoded string")
+    elif type(node) is dict:
+        for key, value in node.items():
+            if type(key) is str:
+                for codepoint in (ord(ch) for ch in key):
+                    if 0xD800 <= codepoint <= 0xDFFF:
+                        raise WireError(
+                            "malformed Unicode surrogate in decoded string"
+                        )
+            _reject_surrogates(value)
+    elif type(node) is list:
+        for item in node:
+            _reject_surrogates(item)
+
+
 # --- Event encoding (strict, fail-closed) ---
 
 
@@ -392,9 +460,10 @@ def _encode_gateway_state_event(event: GatewayStateEvent) -> dict[str, object]:
     _validate_int_field(event.gateway_monotonic_ns, "gateway_monotonic_ns", minimum=0)
     if type(event.schema_version) is not str or event.schema_version != "0.1":
         raise WireError("event schema_version must be 0.1")
-    if event.event_type is not EventName.GATEWAY_STATE:
+    if type(event.event_type) is not EventName or event.event_type is not EventName.GATEWAY_STATE:
         raise WireError("event_type must be gateway.state")
-    _validate_state_enum(event.state)
+    if type(event.state) is not GatewayState:
+        raise WireError("state must be a GatewayState enum")
     _validate_correlation(event.session_id, event.sequence, required=False)
     return {
         "schema_version": "0.1",
@@ -410,7 +479,7 @@ def _encode_neck_target_event(event: NeckTargetEvent) -> dict[str, object]:
     _validate_int_field(event.gateway_monotonic_ns, "gateway_monotonic_ns", minimum=0)
     if type(event.schema_version) is not str or event.schema_version != "0.1":
         raise WireError("event schema_version must be 0.1")
-    if event.event_type is not EventName.NECK_TARGET:
+    if type(event.event_type) is not EventName or event.event_type is not EventName.NECK_TARGET:
         raise WireError("event_type must be neck.target")
     _validate_correlation(event.session_id, event.sequence, required=True)
     if type(event.pan_degrees) is bool or type(event.pan_degrees) not in (int, float):
@@ -437,14 +506,14 @@ def _encode_safety_stop_event(event: SafetyStopEvent) -> dict[str, object]:
     _validate_int_field(event.gateway_monotonic_ns, "gateway_monotonic_ns", minimum=0)
     if type(event.schema_version) is not str or event.schema_version != "0.1":
         raise WireError("event schema_version must be 0.1")
-    if event.event_type is not EventName.SAFETY_STOP:
+    if type(event.event_type) is not EventName or event.event_type is not EventName.SAFETY_STOP:
         raise WireError("event_type must be safety.stop")
-    if event.reason not in _STOP_REASON_BY_VALUE.values():
-        raise WireError("unknown stop reason")
+    if type(event.reason) is not StopReason:
+        raise WireError("reason must be a StopReason enum")
     _validate_correlation(event.session_id, event.sequence, required=False)
-    _validate_action_string(event.neck_action, "neck_action")
-    _validate_action_string(event.base_action, "base_action")
-    _validate_action_string(event.arm_action, "arm_action")
+    _validate_non_empty_non_whitespace(event.neck_action, "neck_action")
+    _validate_non_empty_non_whitespace(event.base_action, "base_action")
+    _validate_non_empty_non_whitespace(event.arm_action, "arm_action")
     return {
         "schema_version": "0.1",
         "event_type": EventName.SAFETY_STOP.value,
@@ -462,12 +531,11 @@ def _encode_command_rejected_event(event: CommandRejectedEvent) -> dict[str, obj
     _validate_int_field(event.gateway_monotonic_ns, "gateway_monotonic_ns", minimum=0)
     if type(event.schema_version) is not str or event.schema_version != "0.1":
         raise WireError("event schema_version must be 0.1")
-    if event.event_type is not EventName.COMMAND_REJECTED:
+    if type(event.event_type) is not EventName or event.event_type is not EventName.COMMAND_REJECTED:
         raise WireError("event_type must be command.rejected")
-    if event.code not in _REJECTION_CODE_BY_VALUE.values():
-        raise WireError("unknown rejection code")
-    if type(event.message) is not str or not event.message:
-        raise WireError("command.rejected message must be a non-empty string")
+    if type(event.code) is not RejectionCode:
+        raise WireError("code must be a RejectionCode enum")
+    _validate_non_empty_non_whitespace(event.message, "message")
     _validate_correlation(event.session_id, event.sequence, required=False)
     return {
         "schema_version": "0.1",
@@ -480,14 +548,9 @@ def _encode_command_rejected_event(event: CommandRejectedEvent) -> dict[str, obj
     }
 
 
-def _validate_state_enum(state: object) -> None:
-    if state not in _STATE_BY_VALUE.values():
-        raise WireError("unknown gateway state")
-
-
-def _validate_action_string(value: object, name: str) -> None:
-    if type(value) is not str or not value:
-        raise WireError(f"{name} must be a non-empty string")
+def _validate_non_empty_non_whitespace(value: object, name: str) -> None:
+    if type(value) is not str or not value or value.isspace():
+        raise WireError(f"{name} must be a non-empty, non-whitespace string")
 
 
 def _validate_correlation(

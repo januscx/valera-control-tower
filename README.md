@@ -82,9 +82,11 @@ between ROS topics and the gateway; it owns no safety decisions.
 The node defaults to a 20 ms poll timer and uses the simulation neck
 configuration only. It uses `time.monotonic_ns` (not ROS Time) for watchdog
 and handshake deadlines so `/clock` pauses or sim time cannot stop safety
-evaluation. It never opens neck servos, the tracked base, or the
-SO-101 arm. See `docs/vr_gateway_ros2_transport_v0_1.md` for the full topic
-contract, JSON examples, monotonic-clock rationale, and limitations.
+evaluation. The poll timer uses an explicit
+`rclpy.clock.Clock(clock_type=ClockType.STEADY_TIME)`. It never opens neck
+servos, the tracked base, or the SO-101 arm. See
+`docs/vr_gateway_ros2_transport_v0_1.md` for the full topic contract, JSON
+examples, monotonic-clock rationale, and limitations.
 
 Run the transport and bridge tests without an installed ROS:
 

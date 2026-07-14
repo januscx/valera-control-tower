@@ -248,3 +248,72 @@ def test_node_module_is_isolated_from_importable_core():
     from robot.vr_gateway_ros import handlers  # noqa: F401
 
     assert VrGatewayBridge is handlers.VrGatewayBridge
+
+
+def test_node_source_contract_uses_explicit_steady_clock_and_monotonic_ns():
+    """Static AST check: the node uses an explicit steady clock for create_timer
+    and passes time.monotonic_ns to the gateway, even though we cannot import
+    the rclpy-dependent module in this environment."""
+    import ast
+
+    node = Path(__file__).resolve().parents[1] / "robot" / "vr_gateway_ros" / "node.py"
+    source = node.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    assert "ClockType.STEADY_TIME" in source
+    assert "clock=self._steady_clock" in source
+    assert "time.monotonic_ns" in source
+
+    # Ensure the rclpy clock import is present (not the local type alias).
+    imports = set()
+    for imp in ast.walk(tree):
+        if isinstance(imp, ast.ImportFrom):
+            assert imp.module is not None
+            imports.add((imp.module, frozenset(alias.name for alias in imp.names)))
+    assert ("rclpy.clock", frozenset({"Clock", "ClockType"})) in imports
+
+
+def test_node_source_validates_ros_parameters_before_use():
+    import ast
+    import re
+
+    node = Path(__file__).resolve().parents[1] / "robot" / "vr_gateway_ros" / "node.py"
+    source = node.read_text(encoding="utf-8")
+
+    assert "_validate_topic(" in source
+    assert "_validate_poll_period_ms(" in source
+
+    # The publisher/subscription/timer must be created after validation calls.
+    publisher_idx = source.index("self.create_publisher")
+    subscription_idx = source.index("self.create_subscription")
+    timer_idx = source.index("self.create_timer")
+    validate_topic_idx = source.index("_validate_topic(")
+    validate_poll_idx = source.index("_validate_poll_period_ms(")
+    assert validate_topic_idx < publisher_idx
+    assert validate_topic_idx < subscription_idx
+    assert validate_topic_idx < timer_idx
+    assert validate_poll_idx < timer_idx
+
+
+def test_gateway_build_helper_passes_monotonic_clock_to_node():
+    import ast
+
+    node = Path(__file__).resolve().parents[1] / "robot" / "vr_gateway_ros" / "node.py"
+    source = node.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    # Look for the call build_simulated_vr_gateway(time.monotonic_ns).
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "build_simulated_vr_gateway"
+    ]
+    assert len(calls) == 1
+    args = calls[0].args
+    assert len(args) == 1
+    assert isinstance(args[0], ast.Attribute)
+    assert args[0].attr == "monotonic_ns"
+    assert isinstance(args[0].value, ast.Name)
+    assert args[0].value.id == "time"

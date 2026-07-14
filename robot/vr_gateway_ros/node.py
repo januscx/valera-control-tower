@@ -19,9 +19,8 @@ Monotonic clock: the gateway watchdog and handshake timeout use ``time.monotonic
 not ROS Time. ROS Time may pause or jump when ``use_sim_time`` is enabled or
 during rosbag playback; a steady monotonic clock ensures that simulated time,
 rosbag playback, or ``/clock`` pauses cannot stop watchdog evaluation. The poll
-timer is also scheduled on a steady wall-clock via ``create_timer`` (rclpy timers
-use a steady clock by default, but we additionally guard that the poll period is
-finite and positive before creating the timer).
+timer is scheduled on an explicit ``rclpy.clock.Clock(clock_type=ClockType.STEADY_TIME)``
+instead of the node's default clock, which may be a ROSClock under sim time.
 
 ROS 2 imports here are deliberate and isolated to this module; the rest of
 ``robot.vr_gateway_ros`` and the whole ``robot.vr_gateway`` core package remain
@@ -32,6 +31,7 @@ from __future__ import annotations
 import time
 
 import rclpy
+from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -80,16 +80,25 @@ class VrGatewayNode(Node):
 
         self._gateway = build_simulated_vr_gateway(time.monotonic_ns)
 
+        # Explicit steady clock for the poll timer. The default node clock may
+        # be a ROSClock that pauses under use_sim_time or /clock; the watchdog
+        # must keep running.
+        self._steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
+
         self._publisher = self.create_publisher(String, event_topic, 10)
         self._bridge = VrGatewayBridge(self._gateway, self._publish_event)
 
         self.create_subscription(String, command_topic, self._on_command, 10)
-        self.create_timer(poll_period_ms / 1000.0, self._bridge.poll)
+        self.create_timer(
+            poll_period_ms / 1000.0,
+            self._bridge.poll,
+            clock=self._steady_clock,
+        )
 
         message = (
             f"valera_vr_gateway ready: command={command_topic} "
             f"event={event_topic} poll={poll_period_ms}ms (sim neck, "
-            "monotonic watchdog clock)"
+            "monotonic watchdog clock, steady poll timer)"
         )
         self.get_logger().info(message)
 
