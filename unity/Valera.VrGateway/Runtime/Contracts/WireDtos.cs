@@ -30,6 +30,13 @@ namespace Valera.VrGateway.Contracts
         public PayloadDto payload;
     }
 
+    [Serializable] public sealed class SessionStartCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public PayloadDto payload; }
+    [Serializable] public sealed class SessionStopCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public PayloadDto payload; }
+    [Serializable] public sealed class ModeSetCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public PayloadDto payload; }
+    [Serializable] public sealed class HeadPoseCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public PayloadDto payload; }
+    [Serializable] public sealed class HeadRecenterCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public PayloadDto payload; }
+    [Serializable] public sealed class EmergencyStopCommandDto { public string schema_version; public string command; public string session_id; public long sequence; public long timestamp_ms; public PayloadDto payload; }
+
     [Serializable]
     public sealed class EventEnvelopeDto
     {
