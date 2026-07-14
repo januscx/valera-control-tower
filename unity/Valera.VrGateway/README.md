@@ -58,3 +58,10 @@ UNITY=/home/janus/Unity/Hub/Editor/6000.3.19f1/Editor/Unity \
 The runner creates and removes its host below `/tmp`; it never creates a Unity
 project inside this repository. ALSA/FMOD warnings from a headless Linux editor
 are expected and do not indicate an audio dependency in this package.
+
+### Continuous integration
+
+GitHub Actions runs the repository pytest suite and stable local demo checks.
+Unity Runtime NUnit tests are executed locally with a Unity Editor installation
+and are not part of the GitHub Actions workflow, because that workflow would
+require Unity licensing infrastructure that is not included in this repository.

@@ -1,6 +1,7 @@
 using System;
 using System.Reflection;
 using NUnit.Framework;
+using Valera.VrGateway.Contracts;
 
 namespace Valera.VrGateway.Tests
 {
@@ -30,6 +31,35 @@ namespace Valera.VrGateway.Tests
             Assert.That((string)type.GetField("EmergencyStop").GetValue(null), Is.EqualTo("emergency_stop"));
             Assert.That((string)type.GetField("GatewayState").GetValue(null), Is.EqualTo("gateway.state"));
             Assert.That((string)type.GetField("CommandRejected").GetValue(null), Is.EqualTo("command.rejected"));
+        }
+
+        [Test]
+        public void Correlation_ValidConstruction()
+        {
+            Correlation c = new Correlation("session-a", 1);
+            Assert.That(c.IsAvailable, Is.True);
+            Assert.That(c.SessionId, Is.EqualTo("session-a"));
+            Assert.That(c.Sequence, Is.EqualTo(1L));
+        }
+
+        [TestCase(null)]
+        [TestCase("")]
+        [TestCase("   ")]
+        public void Correlation_RejectsInvalidSessionId(string sessionId)
+        {
+            Assert.Throws<ArgumentException>(() => new Correlation(sessionId, 1));
+        }
+
+        [Test]
+        public void Correlation_RejectsZeroSequence()
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() => new Correlation("session-a", 0));
+        }
+
+        [Test]
+        public void Correlation_UnavailableIsNotAvailable()
+        {
+            Assert.That(Correlation.Unavailable.IsAvailable, Is.False);
         }
 
         private static Type RequireType(string name)

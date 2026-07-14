@@ -30,7 +30,7 @@ namespace Valera.VrGateway.Contracts
 
         public Correlation(string sessionId, long sequence)
         {
-            if (string.IsNullOrEmpty(sessionId)) throw new ArgumentException("session_id must be non-empty.", nameof(sessionId));
+            if (string.IsNullOrWhiteSpace(sessionId)) throw new ArgumentException("session_id must be non-empty and non-whitespace.", nameof(sessionId));
             if (sequence < 1) throw new ArgumentOutOfRangeException(nameof(sequence), "sequence must be at least 1.");
             IsAvailable = true;
             SessionId = sessionId;

@@ -64,7 +64,7 @@ namespace Valera.VrGateway.Tests
 
         private static object[] EventRoundTripCases()
         {
-            return new object[]
+            var cases = new System.Collections.Generic.List<object>
             {
                 new GatewayStateEventDto { schema_version = "0.1", event_type = "gateway.state", gateway_monotonic_ns = 1, state = "IDLE", correlation = Correlation.Unavailable },
                 new GatewayStateEventDto { schema_version = "0.1", event_type = "gateway.state", gateway_monotonic_ns = 1, state = "AWAITING_RECENTER", correlation = new Correlation("s-1", 1) },
@@ -76,10 +76,37 @@ namespace Valera.VrGateway.Tests
                 new SafetyStopEventDto { schema_version = "0.1", event_type = "safety.stop", gateway_monotonic_ns = 1, reason = "WATCHDOG", correlation = Correlation.Unavailable, neck_action = "HOLD_LAST_POSITION", base_action = "STOP", arm_action = "HOLD" },
                 new SafetyStopEventDto { schema_version = "0.1", event_type = "safety.stop", gateway_monotonic_ns = 1, reason = "EMERGENCY_STOP", correlation = new Correlation("s-1", 5), neck_action = "HOLD_LAST_POSITION", base_action = "STOP", arm_action = "HOLD" },
                 new SafetyStopEventDto { schema_version = "0.1", event_type = "safety.stop", gateway_monotonic_ns = 1, reason = "SESSION_STOPPED", correlation = new Correlation("s-1", 7), neck_action = "CENTER", base_action = "STOP", arm_action = "HOME" },
-                new CommandRejectedEventDto { schema_version = "0.1", event_type = "command.rejected", gateway_monotonic_ns = 1, code = "STALE_SEQUENCE", message = "Sequence must increase within the session.", correlation = Correlation.Unavailable },
-                new CommandRejectedEventDto { schema_version = "0.1", event_type = "command.rejected", gateway_monotonic_ns = 1, code = "UNKNOWN_MODE", message = "Requested mode is not recognized.", correlation = new Correlation("s-1", 2) },
-                new CommandRejectedEventDto { schema_version = "0.1", event_type = "command.rejected", gateway_monotonic_ns = 1, code = "ESTOP_LATCHED", message = "Emergency stop is latched.", correlation = new Correlation("s-1", 1) },
             };
+
+            string[] rejectionCodes = {
+                "STALE_SEQUENCE", "STALE_TIMESTAMP", "SESSION_MISMATCH", "NO_ACTIVE_SESSION",
+                "MODE_BLOCKED", "UNKNOWN_MODE", "WATCHDOG_ACTIVE", "INVALID_PAYLOAD", "ESTOP_LATCHED"
+            };
+            string[] rejectionMessages = {
+                "Sequence must increase within the session.",
+                "Timestamp must not decrease within the session.",
+                "Command does not match the active session.",
+                "No active session is available.",
+                "Requested operation is blocked in this mode.",
+                "Requested mode is not recognized.",
+                "The motion watchdog is active.",
+                "Command payload is invalid.",
+                "Emergency stop is latched.",
+            };
+            for (int i = 0; i < rejectionCodes.Length; i++)
+            {
+                cases.Add(new CommandRejectedEventDto
+                {
+                    schema_version = "0.1",
+                    event_type = "command.rejected",
+                    gateway_monotonic_ns = 1,
+                    code = rejectionCodes[i],
+                    message = rejectionMessages[i],
+                    correlation = i % 2 == 0 ? Correlation.Unavailable : new Correlation("s-1", i + 1),
+                });
+            }
+
+            return cases.ToArray();
         }
 
         private static void AssertCommandEquality(object expected, object actual)

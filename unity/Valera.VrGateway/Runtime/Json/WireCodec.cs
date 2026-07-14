@@ -358,6 +358,7 @@ namespace Valera.VrGateway.Json
         {
             ValidateCommandHeader(dto.schema_version, dto.command, WireValues.SessionStart);
             RequireNonEmpty(dto.session_id, "session_id"); RequireSequence(dto.sequence); RequireTimestamp(dto.timestamp_ms);
+            RequireNotNull(dto.payload, "payload");
             RequireStringExact(dto.payload.requested_mode, "requested_mode", "head");
             var builder = new StringBuilder();
             builder.Append('{');
@@ -376,6 +377,7 @@ namespace Valera.VrGateway.Json
         {
             ValidateCommandHeader(dto.schema_version, dto.command, WireValues.SessionStop);
             RequireNonEmpty(dto.session_id, "session_id"); RequireSequence(dto.sequence); RequireTimestamp(dto.timestamp_ms);
+            RequireNotNull(dto.payload, "payload");
             var builder = new StringBuilder();
             builder.Append('{');
             AppendString(builder, "schema_version", dto.schema_version); builder.Append(',');
@@ -392,6 +394,7 @@ namespace Valera.VrGateway.Json
         {
             ValidateCommandHeader(dto.schema_version, dto.command, WireValues.ModeSet);
             RequireNonEmpty(dto.session_id, "session_id"); RequireSequence(dto.sequence); RequireTimestamp(dto.timestamp_ms);
+            RequireNotNull(dto.payload, "payload");
             RequireModeString(dto.payload.mode);
             var builder = new StringBuilder();
             builder.Append('{');
@@ -410,6 +413,8 @@ namespace Valera.VrGateway.Json
         {
             ValidateCommandHeader(dto.schema_version, dto.command, WireValues.HeadPose);
             RequireNonEmpty(dto.session_id, "session_id"); RequireSequence(dto.sequence); RequireTimestamp(dto.timestamp_ms);
+            RequireNotNull(dto.payload, "payload");
+            RequireNotNull(dto.payload.orientation, "payload.orientation");
             RequireStringExact(dto.payload.frame, "frame", "quest_local");
             QuaternionDto q = dto.payload.orientation;
             ValidateQuaternion(q);
@@ -436,6 +441,8 @@ namespace Valera.VrGateway.Json
         {
             ValidateCommandHeader(dto.schema_version, dto.command, WireValues.HeadRecenter);
             RequireNonEmpty(dto.session_id, "session_id"); RequireSequence(dto.sequence); RequireTimestamp(dto.timestamp_ms);
+            RequireNotNull(dto.payload, "payload");
+            RequireNotNull(dto.payload.orientation, "payload.orientation");
             RequireStringExact(dto.payload.frame, "frame", "quest_local");
             ValidateQuaternion(dto.payload.orientation);
             var builder = new StringBuilder();
@@ -456,6 +463,7 @@ namespace Valera.VrGateway.Json
         {
             ValidateCommandHeader(dto.schema_version, dto.command, WireValues.EmergencyStop);
             RequireNonEmpty(dto.session_id, "session_id"); RequireSequence(dto.sequence); RequireTimestamp(dto.timestamp_ms);
+            RequireNotNull(dto.payload, "payload");
             var builder = new StringBuilder();
             builder.Append('{');
             AppendString(builder, "schema_version", dto.schema_version); builder.Append(',');
@@ -540,6 +548,7 @@ namespace Valera.VrGateway.Json
 
         private static void ValidateFinite(double value, string name) { if (!double.IsFinite(value)) throw new WireValidationException(name + " must be finite."); }
         private static void RequireNonEmpty(string value, string name) { if (string.IsNullOrEmpty(value) || string.IsNullOrWhiteSpace(value)) throw new WireValidationException(name + " must not be empty or whitespace."); }
+        private static void RequireNotNull(object value, string name) { if (value == null) throw new WireValidationException(name + " must not be null."); }
         private static void RequireKnownValue(string value, string name, params string[] values) { foreach (string candidate in values) if (value == candidate) return; throw new WireValidationException(name + " has an unsupported value."); }
         private static void RequireStringExact(string value, string name, string expected) { if (value != expected) throw new WireValidationException(name + " has an unsupported value."); }
         private static void RequireSequence(long value) { if (value < 1) throw new WireValidationException("sequence must be at least 1."); }

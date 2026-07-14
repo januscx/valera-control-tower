@@ -110,7 +110,21 @@ namespace Valera.VrGateway.Json
                     char c = source[index++];
                     if (c == '"') return builder.ToString();
                     if (c < 0x20) throw new WireValidationException("Control character in JSON string.");
-                    if (c != '\\') { if (char.IsSurrogate(c)) throw new WireValidationException("Malformed Unicode surrogate."); builder.Append(c); continue; }
+                    if (c != '\\')
+                    {
+                        if (char.IsSurrogate(c))
+                        {
+                            if (!char.IsHighSurrogate(c)) throw new WireValidationException("Malformed Unicode surrogate.");
+                            if (AtEnd) throw new WireValidationException("Malformed Unicode surrogate pair.");
+                            char low = source[index++];
+                            if (!char.IsLowSurrogate(low)) throw new WireValidationException("Malformed Unicode surrogate pair.");
+                            builder.Append(c);
+                            builder.Append(low);
+                            continue;
+                        }
+                        builder.Append(c);
+                        continue;
+                    }
                     if (AtEnd) throw new WireValidationException("Incomplete JSON escape.");
                     char escape = source[index++];
                     switch (escape)

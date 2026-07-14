@@ -175,6 +175,24 @@ namespace Valera.VrGateway.Tests
             Assert.Throws<WireValidationException>(() => WireCodec.EncodeCommand(dto));
         }
 
+        [Test]
+        public void EncodeCommand_ThrowsWireValidationExceptionForNullPayload()
+        {
+            Assert.Throws<WireValidationException>(() => WireCodec.EncodeCommand(new SessionStartCommandDto { schema_version = "0.1", command = "session.start", session_id = "s-1", sequence = 1, timestamp_ms = 0, payload = null }));
+            Assert.Throws<WireValidationException>(() => WireCodec.EncodeCommand(new SessionStopCommandDto { schema_version = "0.1", command = "session.stop", session_id = "s-1", sequence = 2, timestamp_ms = 1, payload = null }));
+            Assert.Throws<WireValidationException>(() => WireCodec.EncodeCommand(new ModeSetCommandDto { schema_version = "0.1", command = "mode.set", session_id = "s-1", sequence = 2, timestamp_ms = 1, payload = null }));
+            Assert.Throws<WireValidationException>(() => WireCodec.EncodeCommand(new HeadPoseCommandDto { schema_version = "0.1", command = "head.pose", session_id = "s-1", sequence = 2, timestamp_ms = 1, payload = null }));
+            Assert.Throws<WireValidationException>(() => WireCodec.EncodeCommand(new HeadRecenterCommandDto { schema_version = "0.1", command = "head.recenter", session_id = "s-1", sequence = 2, timestamp_ms = 1, payload = null }));
+            Assert.Throws<WireValidationException>(() => WireCodec.EncodeCommand(new EmergencyStopCommandDto { schema_version = "0.1", command = "emergency_stop", session_id = "s-1", sequence = 2, timestamp_ms = 1, payload = null }));
+        }
+
+        [Test]
+        public void EncodeCommand_ThrowsWireValidationExceptionForNullOrientation()
+        {
+            Assert.Throws<WireValidationException>(() => WireCodec.EncodeCommand(new HeadPoseCommandDto { schema_version = "0.1", command = "head.pose", session_id = "s-1", sequence = 2, timestamp_ms = 1, payload = new HeadPosePayloadDto { frame = "quest_local", orientation = null } }));
+            Assert.Throws<WireValidationException>(() => WireCodec.EncodeCommand(new HeadRecenterCommandDto { schema_version = "0.1", command = "head.recenter", session_id = "s-1", sequence = 2, timestamp_ms = 1, payload = new HeadRecenterPayloadDto { frame = "quest_local", orientation = null } }));
+        }
+
         [TestCaseSource(nameof(InvalidEventEncodeCases))]
         public void EncodeEvent_RejectsInvalidDto(object dto)
         {
