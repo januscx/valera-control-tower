@@ -95,7 +95,7 @@ namespace Valera.VrGateway.Json
             if (command == WireValues.ModeSet) { RequireExactFields(payload, Fields("mode")); RequireModeString(payload); return; }
             if (command == WireValues.SessionStop || command == WireValues.EmergencyStop) { RequireExactFields(payload, Fields()); return; }
             bool positionAllowed = command == WireValues.HeadPose;
-            RequireExactFields(payload, positionAllowed ? Fields("frame", "orientation", "position") : Fields("frame", "orientation"), positionAllowed ? Fields("position") : Fields());
+            RequireExactFields(payload, Fields("frame", "orientation"), positionAllowed ? Fields("position") : Fields());
             RequireString(payload, "frame", "quest_local");
             JsonValue orientation = RequireMember(payload, "orientation");
             RequireExactFields(orientation, Fields("x", "y", "z", "w"));

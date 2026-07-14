@@ -35,6 +35,14 @@ namespace Valera.VrGateway.Tests
             Assert.That(error.InnerException.GetType().Name, Is.EqualTo("WireValidationException"));
         }
 
+        [Test]
+        public void DecodeCommand_AllowsHeadPoseWithoutOptionalPosition()
+        {
+            string json = "{\"schema_version\":\"0.1\",\"command\":\"head.pose\",\"session_id\":\"s-1\",\"sequence\":1,\"timestamp_ms\":0,\"payload\":{\"frame\":\"quest_local\",\"orientation\":{\"x\":0,\"y\":0,\"z\":0,\"w\":1}}}";
+            object command = Decode("DecodeCommand", json);
+            Assert.That(command.GetType().FullName, Is.EqualTo("Valera.VrGateway.Contracts.HeadPoseCommandDto"));
+        }
+
         private static object Decode(string methodName, string json)
         {
             Type codec = Type.GetType("Valera.VrGateway.Json.WireCodec, Valera.VrGateway.Runtime");
