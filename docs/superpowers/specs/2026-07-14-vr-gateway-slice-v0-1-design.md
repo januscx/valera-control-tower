@@ -23,6 +23,7 @@ Included:
 - relative HEAD/NECK control from headset quaternion poses
 - recentering without automatic movement
 - configurable filtering, gain, rate limits, and mechanical limits
+- a separate session handshake timeout before motion is enabled
 - local monotonic watchdog
 - latched emergency stop
 - structured rejection reasons
@@ -137,11 +138,13 @@ Only `head` is accepted. The first command for a new session has `sequence = 1`.
 `mode.set`:
 
 ```text
-mode: "head" | "drive" | "arm"
+mode: non-empty string
 ```
 
-`drive` and `arm` are always rejected with `MODE_BLOCKED` in v0.1. An unknown
-mode is rejected with `UNKNOWN_MODE`.
+The message layer validates only that `mode` is a non-empty string. The gateway
+owns semantic recognition: `drive` and `arm` are always rejected with
+`MODE_BLOCKED` in v0.1, while any unknown value is rejected with
+`UNKNOWN_MODE`.
 
 `head.recenter`:
 
@@ -180,6 +183,9 @@ command.rejected
 Every event contains `schema_version`, gateway-local monotonic event time, and
 the related `session_id` and `sequence` when available. The gateway clock field
 is named `gateway_monotonic_ns` and is never compared with client time.
+
+`gateway.state` is emitted only when the gateway state actually changes. It is
+not a heartbeat or an acknowledgement for commands that leave state unchanged.
 
 `neck.target` contains:
 
@@ -253,25 +259,35 @@ reserved for commands within a valid active session.
 
 Starting a new session invalidates any previous active session. Packets for an
 old or different session are rejected with `SESSION_MISMATCH`. Within the active
-session, sequence numbers and client timestamps must strictly increase after
-`session.start`; gaps in sequence are allowed.
+session, sequence numbers must strictly increase after `session.start`, while
+client timestamps may stay equal and must only be non-decreasing. Gaps in
+sequence are allowed. Replay protection comes from sequence numbers, not
+timestamps.
 
 `head.pose` is accepted only in `HEAD_ACTIVE`. Recenter is required after every
-new session. A new valid session may leave `ESTOP_LATCHED`, but it transitions
-only to `AWAITING_RECENTER`; it cannot produce motion until another explicit
-recenter and pose are accepted.
+new session. `session.start` cannot leave `ESTOP_LATCHED`; it is rejected with
+`ESTOP_LATCHED`.
 
-## Watchdog
+## Handshake Timeout And Motion Watchdog
 
 The gateway records `last_valid_packet_received_monotonic_ns` using an injected
 clock backed by `time.monotonic_ns()` in production. Client time is never used
 to measure the watchdog interval.
 
-The watchdog timeout is 250 milliseconds. It is refreshed only by a command
-that passes envelope, session, ordering, mode, and payload validation. Invalid
-or rejected traffic cannot keep the session alive.
+`AWAITING_RECENTER` uses a separate 10-second handshake timeout measured from
+`session_started_monotonic_ns`, captured when `session.start` is accepted. It
+gives the operator time to perform an explicit recenter before any motion is
+enabled. If it expires, the gateway invalidates the session, returns to `IDLE`,
+and emits the corresponding `gateway.state` transition. It does not emit
+`safety.stop`, because the session never had permission to produce actuator
+targets.
 
-When the timeout expires in `AWAITING_RECENTER` or `HEAD_ACTIVE`, the gateway:
+The 250-millisecond motion watchdog runs only in `HEAD_ACTIVE`. It is refreshed
+only by a command that passes envelope, session, ordering, mode, and payload
+validation. Invalid or rejected traffic cannot keep the active motion session
+alive.
+
+When the motion watchdog expires in `HEAD_ACTIVE`, the gateway:
 
 1. enters `SAFE_STOPPED`
 2. invalidates the active session
@@ -297,10 +313,16 @@ It invalidates the active session, enters `ESTOP_LATCHED`, and emits an
 idempotent `safety.stop` requiring neck hold, base stop, and arm hold. It never
 causes movement.
 
-No command in the stopped session can clear the latch. In v0.1, only a new unique
-`session.start` can transition from `ESTOP_LATCHED` to `AWAITING_RECENTER`.
-Future guarded hardware integration may strengthen this with a separate
-operator-confirmed reset command without weakening the v0.1 behavior.
+No command can clear the latch in v0.1. `session.start` is rejected with
+`ESTOP_LATCHED`, so connection loss and automatic reconnect cannot reset the
+emergency stop. Recovery requires restarting the gateway process. A later
+guarded hardware slice may add a separate `safety.reset` command that requires
+explicit operator confirmation and verified stationary actuator state.
+
+Every accepted `emergency_stop` emits a new `safety.stop`, including when the
+gateway is already in `ESTOP_LATCHED`. The latch transition itself emits
+`gateway.state` only the first time because the state has not changed on later
+calls.
 
 ## Neck Control Pipeline
 
@@ -320,8 +342,12 @@ and the simulation runner may use clearly named simulation-only fixture values.
 Invalid, non-finite, or zero-length quaternions are rejected with
 `INVALID_PAYLOAD`. Accepted quaternions are normalized before use.
 
-On the first pose after recenter, rate limiting starts from the configured servo
-center. Recenter itself emits no target, preventing an implicit movement.
+In simulation, the first pose after recenter starts rate limiting from an
+explicit simulation-only initial target, normally the configured simulated
+servo center. Recenter itself emits no target, preventing implicit movement.
+When real servos are added, the initial target must come from validated actuator
+readback or the last confirmed command; hardware code must not assume
+`servo_center` is the physical starting position.
 
 ## Failure Semantics
 
@@ -355,14 +381,17 @@ Session and gateway tests cover:
 - first sequence is 1
 - unique session IDs and rejection of ID reuse
 - invalidation of old sessions
-- strictly increasing sequence and client timestamp
+- strictly increasing sequence and non-decreasing client timestamp
 - acceptance of sequence gaps
 - HEAD-only mode and explicit DRIVE/ARM blocking
+- 10-second recenter handshake timeout with no actuator-stop event
 - recenter requirement before any target
 - watchdog refresh only from valid packets
 - one-shot watchdog stop and mandatory new-session recovery
 - emergency stop without a session and despite stale ordering
-- repeated emergency stop behavior
+- repeated emergency stop produces repeated safe-action events
+- session reconnect cannot clear emergency stop
+- only process restart clears the v0.1 emergency-stop latch
 - no automatic latch clearing or return-to-center movement
 
 Neck tests cover:
