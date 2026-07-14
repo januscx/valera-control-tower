@@ -1,0 +1,10 @@
+{
+  "name": "com.januscx.valera-vr-gateway",
+  "version": "0.1.0",
+  "displayName": "Valera VR Gateway",
+  "description": "Transport-neutral VR Gateway v0.1 client contract.",
+  "unity": "6000.0",
+  "author": {
+    "name": "januscx"
+  }
+}
