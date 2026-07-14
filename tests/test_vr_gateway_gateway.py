@@ -67,6 +67,22 @@ def command(
     return CommandEnvelope("0.1", name, session_id, sequence, timestamp_ms, payload)
 
 
+def unchecked_command(**overrides) -> CommandEnvelope:
+    values = {
+        "schema_version": "0.1",
+        "command": CommandName.HEAD_POSE,
+        "session_id": "session-a",
+        "sequence": 4,
+        "timestamp_ms": 3,
+        "payload": PosePayload("quest_local", Quaternion(0, 0, 0, 1)),
+    }
+    values.update(overrides)
+    value = object.__new__(CommandEnvelope)
+    for name, field_value in values.items():
+        object.__setattr__(value, name, field_value)
+    return value
+
+
 def start(
     gateway: VrGateway,
     *,
@@ -299,6 +315,135 @@ def test_wrong_payload_is_rejected_with_bounded_static_message():
     assert len(event.message) <= 80
 
 
+@pytest.mark.parametrize(
+    ("name", "wrong_payload"),
+    [
+        (CommandName.SESSION_START, EmptyPayload()),
+        (CommandName.SESSION_STOP, ModeSetPayload("head")),
+        (CommandName.MODE_SET, EmptyPayload()),
+        (CommandName.HEAD_POSE, EmptyPayload()),
+        (CommandName.HEAD_RECENTER, EmptyPayload()),
+        (CommandName.EMERGENCY_STOP, ModeSetPayload("head")),
+    ],
+)
+def test_every_command_rejects_wrong_approved_payload_model(name, wrong_payload):
+    gateway, _ = make_gateway()
+    if name not in {CommandName.SESSION_START, CommandName.EMERGENCY_STOP}:
+        start(gateway)
+
+    event = rejection(
+        gateway.handle(
+            command(
+                name,
+                wrong_payload,
+                sequence=1 if name is CommandName.SESSION_START else 2,
+            )
+        )
+    )
+
+    assert event.code is RejectionCode.INVALID_PAYLOAD
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        object(),
+        unchecked_command(schema_version=1),
+        unchecked_command(command="head.pose"),
+        unchecked_command(session_id=7),
+        unchecked_command(sequence=True),
+        unchecked_command(sequence=4.0),
+        unchecked_command(timestamp_ms=False),
+        unchecked_command(timestamp_ms=float("nan")),
+        unchecked_command(payload=object()),
+    ],
+)
+def test_gateway_fails_closed_for_malformed_runtime_objects(malformed):
+    gateway, _ = make_gateway()
+
+    events = gateway.handle(malformed)
+
+    event = rejection(events)
+    assert event.code is RejectionCode.INVALID_PAYLOAD
+    assert not any(isinstance(item, NeckTargetEvent) for item in events)
+
+
+@pytest.mark.parametrize(
+    "bad_nested",
+    [object(), Quaternion(0, 0, 0, 1)],
+)
+def test_gateway_rejects_mutated_wrong_nested_pose_objects(bad_nested):
+    gateway, _ = make_gateway()
+    payload = PosePayload("quest_local", Quaternion(0, 0, 0, 1))
+    if isinstance(bad_nested, Quaternion):
+        object.__setattr__(payload, "position", bad_nested)
+    else:
+        object.__setattr__(payload, "orientation", bad_nested)
+
+    event = rejection(gateway.handle(unchecked_command(payload=payload)))
+
+    assert event.code is RejectionCode.INVALID_PAYLOAD
+
+
+@pytest.mark.parametrize(
+    "components",
+    [
+        (float("nan"), 0.0, 0.0, 1.0),
+        (1e308, 1e308, 1e308, 1e308),
+    ],
+)
+def test_gateway_rejects_unsafe_quaternion_without_throwing(components):
+    gateway, _ = make_gateway()
+    orientation = Quaternion(0, 0, 0, 1)
+    for name, value in zip(("x", "y", "z", "w"), components):
+        object.__setattr__(orientation, name, value)
+    payload = PosePayload.__new__(PosePayload)
+    object.__setattr__(payload, "frame", "quest_local")
+    object.__setattr__(payload, "orientation", orientation)
+    object.__setattr__(payload, "position", None)
+
+    event = rejection(gateway.handle(unchecked_command(payload=payload)))
+
+    assert event.code is RejectionCode.INVALID_PAYLOAD
+
+
+def test_malformed_traffic_cannot_refresh_motion_watchdog():
+    gateway, clock = make_gateway()
+    start(gateway)
+    recenter(gateway)
+    pose(gateway)
+    clock.advance_ms(200)
+
+    event = rejection(gateway.handle(unchecked_command(sequence=True)))
+    clock.advance_ms(50)
+    deadline_events = gateway.poll()
+
+    assert event.code is RejectionCode.INVALID_PAYLOAD
+    assert [type(item) for item in deadline_events] == [
+        GatewayStateEvent,
+        SafetyStopEvent,
+    ]
+
+
+def test_extreme_finite_quaternion_is_safe_through_gateway_path():
+    gateway, clock = make_gateway()
+    start(gateway)
+    recenter(gateway, orientation=Quaternion(1e308, 0, 0, 1))
+    clock.advance_ms(1)
+
+    events = gateway.handle(
+        command(
+            CommandName.HEAD_POSE,
+            PosePayload("quest_local", Quaternion(1e308, 0, 0, 2)),
+            sequence=3,
+            timestamp_ms=2,
+        )
+    )
+
+    assert len(events) == 1
+    assert isinstance(events[0], NeckTargetEvent)
+
+
 def test_head_only_mode_routing_distinguishes_blocked_and_unknown_modes():
     gateway, _ = make_gateway()
     start(gateway)
@@ -458,6 +603,77 @@ def test_motion_watchdog_stops_head_motion_once_at_timeout():
     assert gateway.poll() == ()
 
 
+@pytest.mark.parametrize("elapsed_ms", [250, 251])
+def test_late_pose_triggers_watchdog_without_preceding_poll(elapsed_ms):
+    gateway, clock = make_gateway()
+    start(gateway)
+    recenter(gateway)
+    pose(gateway)
+    clock.advance_ms(elapsed_ms)
+
+    events = gateway.handle(
+        command(
+            CommandName.HEAD_POSE,
+            PosePayload("quest_local", Quaternion(0.0, 0.2, 0.0, 1.0)),
+            sequence=4,
+            timestamp_ms=3,
+        )
+    )
+
+    assert [type(event) for event in events] == [
+        GatewayStateEvent,
+        SafetyStopEvent,
+        CommandRejectedEvent,
+    ]
+    assert events[0].state is GatewayState.SAFE_STOPPED
+    assert events[1].reason is StopReason.WATCHDOG
+    assert events[2].code is RejectionCode.WATCHDOG_ACTIVE
+    assert not any(isinstance(event, NeckTargetEvent) for event in events)
+    assert gateway.poll() == ()
+
+
+@pytest.mark.parametrize("elapsed_ms", [10_000, 10_001])
+def test_late_recenter_expires_handshake_without_preceding_poll(elapsed_ms):
+    gateway, clock = make_gateway()
+    start(gateway)
+    clock.advance_ms(elapsed_ms)
+
+    events = recenter(gateway)
+
+    assert events == (
+        GatewayStateEvent(
+            elapsed_ms * 1_000_000,
+            GatewayState.IDLE,
+            "session-a",
+            1,
+        ),
+        CommandRejectedEvent(
+            elapsed_ms * 1_000_000,
+            RejectionCode.NO_ACTIVE_SESSION,
+            "No active session is available.",
+            "session-a",
+            2,
+        ),
+    )
+    assert not any(isinstance(event, SafetyStopEvent) for event in events)
+    assert gateway.poll() == ()
+
+
+def test_valid_estop_precedes_elapsed_motion_watchdog():
+    gateway, clock = make_gateway()
+    start(gateway)
+    recenter(gateway)
+    pose(gateway)
+    clock.advance_ms(250)
+
+    events = estop(gateway, session_id="operator-stop", sequence=99)
+
+    assert [type(event) for event in events] == [GatewayStateEvent, SafetyStopEvent]
+    assert events[0].state is GatewayState.ESTOP_LATCHED
+    assert events[1].reason is StopReason.EMERGENCY_STOP
+    assert gateway.poll() == ()
+
+
 def test_rejected_commands_do_not_refresh_motion_watchdog():
     gateway, clock = make_gateway()
     start(gateway)
@@ -519,6 +735,48 @@ def test_expired_watchdog_session_rejects_traffic_without_target():
     event = rejection(events)
     assert event.code is RejectionCode.WATCHDOG_ACTIVE
     assert not any(isinstance(item, NeckTargetEvent) for item in events)
+
+
+def test_watchdog_recovery_requires_unique_session_and_new_recenter():
+    gateway, clock = make_gateway()
+    start(gateway)
+    recenter(gateway)
+    pose(gateway)
+    clock.advance_ms(250)
+    gateway.poll()
+
+    reused = rejection(start(gateway))
+    started = start(gateway, session_id="session-b")
+    before_recenter = gateway.handle(
+        command(
+            CommandName.HEAD_POSE,
+            PosePayload("quest_local", Quaternion(0, 0.1, 0, 1)),
+            session_id="session-b",
+            sequence=2,
+            timestamp_ms=1,
+        )
+    )
+    activated = recenter(
+        gateway,
+        session_id="session-b",
+        sequence=3,
+        timestamp_ms=2,
+    )
+
+    assert reused.code is RejectionCode.INVALID_PAYLOAD
+    assert started == (
+        GatewayStateEvent(
+            250_000_000,
+            GatewayState.AWAITING_RECENTER,
+            "session-b",
+            1,
+        ),
+    )
+    assert rejection(before_recenter).code is RejectionCode.MODE_BLOCKED
+    assert not any(isinstance(item, NeckTargetEvent) for item in before_recenter)
+    assert activated == (
+        GatewayStateEvent(250_000_000, GatewayState.HEAD_ACTIVE, "session-b", 3),
+    )
 
 
 def test_estop_without_active_session_latches_and_stops():

@@ -11,6 +11,7 @@ from robot.vr_gateway.messages import (
     EmptyPayload,
     GatewayState,
     GatewayStateEvent,
+    MessageValidationError,
     ModeSetPayload,
     NeckTargetEvent,
     OutputEvent,
@@ -19,6 +20,7 @@ from robot.vr_gateway.messages import (
     SafetyStopEvent,
     SessionStartPayload,
     StopReason,
+    validate_command_envelope,
 )
 from robot.vr_gateway.neck import NeckController
 
@@ -60,13 +62,30 @@ class VrGateway:
         self.session_started_monotonic_ns: int | None = None
         self.last_valid_packet_received_monotonic_ns: int | None = None
 
-    def handle(self, command: CommandEnvelope) -> tuple[OutputEvent, ...]:
+    def handle(self, command: object) -> tuple[OutputEvent, ...]:
         now_ns = self.clock()
 
+        try:
+            command = validate_command_envelope(command)
+        except (MessageValidationError, AttributeError, TypeError, ValueError):
+            deadline_events = self._evaluate_deadline(now_ns)
+            return deadline_events + (
+                self._reject_untrusted(command, RejectionCode.INVALID_PAYLOAD, now_ns),
+            )
+
         if command.command is CommandName.EMERGENCY_STOP:
-            if not isinstance(command.payload, EmptyPayload):
+            if type(command.payload) is not EmptyPayload:
                 return (self._reject(command, RejectionCode.INVALID_PAYLOAD, now_ns),)
             return self._handle_emergency_stop(command, now_ns)
+
+        deadline_events = self._evaluate_deadline(now_ns)
+        if deadline_events:
+            code = (
+                RejectionCode.WATCHDOG_ACTIVE
+                if self.state is GatewayState.SAFE_STOPPED
+                else RejectionCode.NO_ACTIVE_SESSION
+            )
+            return deadline_events + (self._reject(command, code, now_ns),)
 
         if command.command is CommandName.SESSION_START:
             return self._handle_session_start(command, now_ns)
@@ -91,7 +110,7 @@ class VrGateway:
             CommandName.HEAD_POSE: PosePayload,
             CommandName.HEAD_RECENTER: PosePayload,
         }.get(command.command)
-        if expected_payload is None or not isinstance(command.payload, expected_payload):
+        if expected_payload is None or type(command.payload) is not expected_payload:
             return (self._reject(command, RejectionCode.INVALID_PAYLOAD, now_ns),)
 
         if command.command is CommandName.MODE_SET:
@@ -104,6 +123,9 @@ class VrGateway:
 
     def poll(self) -> tuple[OutputEvent, ...]:
         now_ns = self.clock()
+        return self._evaluate_deadline(now_ns)
+
+    def _evaluate_deadline(self, now_ns: int) -> tuple[OutputEvent, ...]:
         if (
             self.state is GatewayState.AWAITING_RECENTER
             and self.session_started_monotonic_ns is not None
@@ -300,4 +322,25 @@ class VrGateway:
             _REJECTION_MESSAGES[code],
             command.session_id,
             command.sequence,
+        )
+
+    def _reject_untrusted(
+        self,
+        command: object,
+        code: RejectionCode,
+        now_ns: int,
+    ) -> CommandRejectedEvent:
+        attributes = command.__dict__ if type(command) is CommandEnvelope else {}
+        session_id = attributes.get("session_id")
+        sequence = attributes.get("sequence")
+        if type(session_id) is not str or not session_id:
+            session_id = None
+        if type(sequence) is not int or sequence < 1:
+            sequence = None
+        return CommandRejectedEvent(
+            now_ns,
+            code,
+            _REJECTION_MESSAGES[code],
+            session_id,
+            sequence,
         )

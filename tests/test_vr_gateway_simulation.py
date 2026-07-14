@@ -40,15 +40,15 @@ def test_simulated_head_sequence_is_repeatable():
     assert run_simulated_head_sequence() == run_simulated_head_sequence()
 
 
-def test_vr_gateway_source_has_no_transport_or_hardware_sdk_imports():
-    forbidden_imports = {
-        "cv2",
-        "lerobot",
-        "rclpy",
-        "roslibpy",
-        "serial",
-        "socket",
-        "websockets",
+def test_vr_gateway_import_roots_are_explicitly_allowed():
+    allowed_import_roots = {
+        "__future__",
+        "dataclasses",
+        "enum",
+        "math",
+        "robot",
+        "time",
+        "typing",
     }
     package_dir = Path(__file__).parents[1] / "robot" / "vr_gateway"
 
@@ -58,7 +58,12 @@ def test_vr_gateway_source_has_no_transport_or_hardware_sdk_imports():
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 found.update(alias.name.split(".", 1)[0] for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                found.add(node.module.split(".", 1)[0])
+            elif isinstance(node, ast.ImportFrom):
+                if node.level or not node.module:
+                    found.add("<relative-import>")
+                else:
+                    found.add(node.module.split(".", 1)[0])
 
-    assert found.isdisjoint(forbidden_imports)
+    assert found <= allowed_import_roots, (
+        f"undeclared import roots: {found - allowed_import_roots}"
+    )

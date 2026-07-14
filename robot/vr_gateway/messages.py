@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from math import isfinite, sqrt
+from math import hypot, isfinite
 from typing import TypeAlias
 
 SCHEMA_VERSION = "0.1"
@@ -63,14 +63,14 @@ class Quaternion:
     w: float
 
     def __post_init__(self) -> None:
-        if not all(isfinite(value) for value in (self.x, self.y, self.z, self.w)):
-            raise MessageValidationError("quaternion values must be finite")
-        if self.norm <= 1e-12:
-            raise MessageValidationError("quaternion must not be zero length")
+        for name in ("x", "y", "z", "w"):
+            value = _finite_json_number(getattr(self, name), "quaternion")
+            object.__setattr__(self, name, value)
+        _validate_quaternion(self)
 
     @property
     def norm(self) -> float:
-        return sqrt(self.x * self.x + self.y * self.y + self.z * self.z + self.w * self.w)
+        return hypot(self.x, self.y, self.z, self.w)
 
     def normalized(self) -> "Quaternion":
         norm = self.norm
@@ -84,8 +84,10 @@ class Position:
     z: float
 
     def __post_init__(self) -> None:
-        if not all(isfinite(value) for value in (self.x, self.y, self.z)):
-            raise MessageValidationError("position values must be finite")
+        for name in ("x", "y", "z"):
+            value = _finite_json_number(getattr(self, name), "position")
+            object.__setattr__(self, name, value)
+        _validate_position(self)
 
 
 @dataclass(frozen=True)
@@ -93,8 +95,7 @@ class SessionStartPayload:
     requested_mode: str
 
     def __post_init__(self) -> None:
-        if not self.requested_mode:
-            raise MessageValidationError("requested_mode is required")
+        _require_nonempty_string(self.requested_mode, "requested_mode")
 
 
 @dataclass(frozen=True)
@@ -102,8 +103,7 @@ class ModeSetPayload:
     mode: str
 
     def __post_init__(self) -> None:
-        if not self.mode:
-            raise MessageValidationError("mode is required")
+        _require_nonempty_string(self.mode, "mode")
 
 
 @dataclass(frozen=True)
@@ -113,8 +113,15 @@ class PosePayload:
     position: Position | None = None
 
     def __post_init__(self) -> None:
-        if self.frame != QUEST_LOCAL_FRAME:
+        if type(self.frame) is not str or self.frame != QUEST_LOCAL_FRAME:
             raise MessageValidationError("frame must be quest_local")
+        if type(self.orientation) is not Quaternion:
+            raise MessageValidationError("orientation must be a Quaternion")
+        _validate_quaternion(self.orientation)
+        if self.position is not None:
+            if type(self.position) is not Position:
+                raise MessageValidationError("position must be a Position")
+            _validate_position(self.position)
 
 
 @dataclass(frozen=True)
@@ -135,14 +142,73 @@ class CommandEnvelope:
     payload: Payload
 
     def __post_init__(self) -> None:
-        if self.schema_version != SCHEMA_VERSION:
+        if type(self.schema_version) is not str or self.schema_version != SCHEMA_VERSION:
             raise MessageValidationError("schema_version must be 0.1")
-        if not self.session_id:
-            raise MessageValidationError("session_id is required")
+        if type(self.command) is not CommandName:
+            raise MessageValidationError("command must be a CommandName")
+        _require_nonempty_string(self.session_id, "session_id")
+        if type(self.sequence) is not int:
+            raise MessageValidationError("sequence must be an integer")
         if self.sequence < 1:
             raise MessageValidationError("sequence must be at least 1")
+        if type(self.timestamp_ms) is not int:
+            raise MessageValidationError("timestamp_ms must be an integer")
         if self.timestamp_ms < 0:
             raise MessageValidationError("timestamp_ms must be non-negative")
+        _validate_payload(self.payload)
+
+
+def validate_command_envelope(value: object) -> CommandEnvelope:
+    """Validate an envelope again at the gateway's runtime trust boundary."""
+    if type(value) is not CommandEnvelope:
+        raise MessageValidationError("command must be a CommandEnvelope")
+    value.__post_init__()
+    return value
+
+
+def _validate_payload(payload: object) -> None:
+    if type(payload) is SessionStartPayload:
+        payload.__post_init__()
+    elif type(payload) is ModeSetPayload:
+        payload.__post_init__()
+    elif type(payload) is PosePayload:
+        payload.__post_init__()
+    elif type(payload) is not EmptyPayload:
+        raise MessageValidationError("payload must be an approved payload model")
+
+
+def _validate_quaternion(value: Quaternion) -> None:
+    components = (value.x, value.y, value.z, value.w)
+    if any(
+        type(component) not in (int, float) or not isfinite(component)
+        for component in components
+    ):
+        raise MessageValidationError("quaternion values must be finite JSON numbers")
+    norm = hypot(*components)
+    if not isfinite(norm):
+        raise MessageValidationError("quaternion norm must be finite")
+    if norm <= 1e-12:
+        raise MessageValidationError("quaternion must not be zero length")
+
+
+def _validate_position(value: Position) -> None:
+    components = (value.x, value.y, value.z)
+    if any(
+        type(component) not in (int, float) or not isfinite(component)
+        for component in components
+    ):
+        raise MessageValidationError("position values must be finite JSON numbers")
+
+
+def _finite_json_number(value: object, owner: str) -> float:
+    if type(value) not in (int, float) or not isfinite(value):
+        raise MessageValidationError(f"{owner} values must be finite JSON numbers")
+    return float(value)
+
+
+def _require_nonempty_string(value: object, field_name: str) -> None:
+    if type(value) is not str or not value:
+        raise MessageValidationError(f"{field_name} must be a non-empty string")
 
 
 @dataclass(frozen=True)
