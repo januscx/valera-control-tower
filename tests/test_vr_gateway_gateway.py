@@ -448,6 +448,13 @@ def test_motion_watchdog_stops_head_motion_once_at_timeout():
     assert events[0].state is GatewayState.SAFE_STOPPED
     assert events[1].reason is StopReason.WATCHDOG
     assert events[1].neck_action == "HOLD_LAST_POSITION"
+    assert events[1].base_action == "STOP"
+    assert events[1].arm_action == "HOLD"
+    assert gateway.active_session_id is None
+    assert gateway.last_sequence is None
+    assert gateway.last_timestamp_ms is None
+    assert gateway.session_started_monotonic_ns is None
+    assert gateway.last_valid_packet_received_monotonic_ns is None
     assert gateway.poll() == ()
 
 
@@ -537,11 +544,21 @@ def test_estop_bypasses_ordering_and_session_checks_and_repeats_stop_event():
         sequence=1,
         timestamp_ms=0,
     )
-    repeated = estop(gateway, session_id="another-session", sequence=1)
 
     assert [type(event) for event in first] == [GatewayStateEvent, SafetyStopEvent]
     assert first[0].state is GatewayState.ESTOP_LATCHED
     assert first[1].reason is StopReason.EMERGENCY_STOP
+    assert first[1].neck_action == "HOLD_LAST_POSITION"
+    assert first[1].base_action == "STOP"
+    assert first[1].arm_action == "HOLD"
+    assert gateway.active_session_id is None
+    assert gateway.last_sequence is None
+    assert gateway.last_timestamp_ms is None
+    assert gateway.session_started_monotonic_ns is None
+    assert gateway.last_valid_packet_received_monotonic_ns is None
+
+    repeated = estop(gateway, session_id="another-session", sequence=1)
+
     assert repeated == (
         SafetyStopEvent(0, StopReason.EMERGENCY_STOP, "another-session", 1),
     )
@@ -564,6 +581,20 @@ def test_estop_after_watchdog_transitions_to_latched_and_stops_again():
     assert [type(event) for event in events] == [GatewayStateEvent, SafetyStopEvent]
     assert events[0].state is GatewayState.ESTOP_LATCHED
     assert events[1].reason is StopReason.EMERGENCY_STOP
+
+
+def test_estop_from_awaiting_recenter_latches_and_stops():
+    gateway, _ = make_gateway()
+    start(gateway)
+
+    events = estop(gateway, sequence=2, timestamp_ms=1)
+
+    assert [type(event) for event in events] == [GatewayStateEvent, SafetyStopEvent]
+    assert events[0].state is GatewayState.ESTOP_LATCHED
+    assert events[1].reason is StopReason.EMERGENCY_STOP
+    assert events[1].neck_action == "HOLD_LAST_POSITION"
+    assert events[1].base_action == "STOP"
+    assert events[1].arm_action == "HOLD"
 
 
 def test_estop_latch_rejects_session_reconnect():
