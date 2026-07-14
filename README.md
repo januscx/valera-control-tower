@@ -53,6 +53,19 @@ python3 scripts/run_adapter_sim_demo.py
 This exercises the camera, vision, and arm adapter boundaries without opening
 real cameras, serial ports, USB devices, or arm runtimes.
 
+## VR gateway simulation
+
+Run the deterministic VR head-control simulation and its focused tests:
+
+```bash
+python3 scripts/run_vr_gateway_simulation.py
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/test_vr_gateway_*.py -v
+```
+
+The runner prints newline-delimited JSON and opens no ROS, network, base, arm,
+gripper, or real neck device. Its named simulation angles are deterministic
+fixtures, not Valera hardware calibration.
+
 Verify the full local hybrid demo chain:
 
 ```bash
