@@ -38,7 +38,7 @@ host project:
 
 ```bash
 UNITY=/home/janus/Unity/Hub/Editor/6000.3.19f1/Editor/Unity \
-  scripts/test_unity_vr_gateway_package.sh
+  unity/Valera.VrGateway/Tests/run_ephemeral_tests.sh
 ```
 
 The runner creates and removes its host below `/tmp`; it never creates a Unity
