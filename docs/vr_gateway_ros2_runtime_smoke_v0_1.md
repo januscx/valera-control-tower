@@ -24,6 +24,7 @@ These commands do not use the live Pi5 workspace or services:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
+export ROS_DOMAIN_ID=91
 rm -rf /tmp/valera_vr_gateway_smoke_ws
 mkdir -p /tmp/valera_vr_gateway_smoke_ws/src
 git clone --branch codex/vr-gateway-ros2-runtime-smoke-v0-1 \
@@ -51,6 +52,9 @@ Run from the checked-out repository after sourcing the isolated install:
 cd /tmp/valera_vr_gateway_smoke_ws/src/valera-control-tower
 python3 -u scripts/smoke_vr_gateway_ros2.py --mode gateway
 ```
+
+The harness defaults to the dedicated `ROS_DOMAIN_ID=91`. Override it with
+`--ros-domain-id` when another isolated domain is needed.
 
 The harness starts a fresh `ros2 run` process for every stateful scenario,
 waits for both expected DDS connections, applies strict timeouts, and kills
@@ -88,6 +92,18 @@ Gateway plus loopback rosbridge:
 ros2 launch valera_vr_gateway valera_vr_gateway_with_rosbridge.launch.py
 ```
 
+The smoke harness uses port `9091` by default, rather than the conventional
+`9090`, and passes the same configurable value to the launch process:
+
+```bash
+python3 -u scripts/smoke_vr_gateway_ros2.py \
+  --mode rosbridge --ros-domain-id 91 --smoke-port 9091
+```
+
+The WebSocket wire shape is the ROS `std_msgs/msg/String` shape: publish with
+`"msg": {"data": "<JSON command string>"}` and decode received events from
+`document["msg"]["data"]`.
+
 Observed on Pi5 for the gateway-only launch:
 
 ```text
@@ -97,13 +113,13 @@ Observed on Pi5 for the gateway-only launch:
 /valera/vr_gateway/event
 ```
 
-Observed for the combined launch:
+Observed for the combined launch with `rosbridge_port:=9091`:
 
 ```text
-Rosbridge WebSocket server started on port 9090
+Rosbridge WebSocket server started on port 9091
 ```
 
-The combined launch bound to `127.0.0.1:9090`. Its topic allowlist is exactly:
+The combined launch bound to `127.0.0.1:9091` for the isolated smoke. Its topic allowlist is exactly:
 
 ```text
 /valera/vr_gateway/command

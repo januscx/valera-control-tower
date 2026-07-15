@@ -17,7 +17,7 @@ def test_ament_python_metadata_declares_safe_runtime_dependencies():
     dependencies = {
         node.text for node in package if node.tag in {"depend", "exec_depend"}
     }
-    assert {"rclpy", "std_msgs"}.issubset(dependencies)
+    assert {"rclpy", "std_msgs", "launch", "launch_ros"}.issubset(dependencies)
     assert not dependencies & {
         "geometry_msgs",
         "sensor_msgs",
@@ -31,6 +31,11 @@ def test_setup_discovers_existing_robot_modules_without_copying_them():
     setup_source = (PACKAGE / "setup.py").read_text(encoding="utf-8")
     assert "find_packages" in setup_source
     assert "robot" in setup_source
+    assert '"robot.vr_gateway"' in setup_source
+    assert '"robot.vr_gateway.*"' in setup_source
+    assert '"robot.vr_gateway_ros"' in setup_source
+    assert '"robot.vr_gateway_ros.*"' in setup_source
+    assert '"robot.adapters"' not in setup_source
     assert "copy" not in setup_source.lower()
     assert "robot.vr_gateway" not in (PACKAGE / "robot").as_posix()
 

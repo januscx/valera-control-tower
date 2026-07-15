@@ -7,7 +7,13 @@ PACKAGE_DIR = Path(__file__).resolve().parent
 REPOSITORY_ROOT = PACKAGE_DIR.parents[1]
 ROBOT_PACKAGES = find_packages(
     where=str(REPOSITORY_ROOT),
-    include=("robot", "robot.*"),
+    include=(
+        "robot",
+        "robot.vr_gateway",
+        "robot.vr_gateway.*",
+        "robot.vr_gateway_ros",
+        "robot.vr_gateway_ros.*",
+    ),
 )
 
 setup(

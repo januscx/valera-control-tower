@@ -13,7 +13,6 @@ import json
 import os
 import queue
 import signal
-import shutil
 import socket
 import subprocess
 import sys
@@ -28,6 +27,8 @@ from std_msgs.msg import String
 
 COMMAND_TOPIC = "/valera/vr_gateway/command"
 EVENT_TOPIC = "/valera/vr_gateway/event"
+DEFAULT_ROS_DOMAIN_ID = 91
+DEFAULT_SMOKE_PORT = 9091
 NODE_COMMAND = ["ros2", "run", "valera_vr_gateway", "valera_vr_gateway_node"]
 LAUNCH_COMMAND = [
     "ros2",
@@ -78,10 +79,6 @@ def pose(session_id: str = "smoke-session") -> str:
             "orientation": {"x": 0.0, "y": 0.1, "z": 0.0, "w": 1.0},
         },
     )
-
-
-def safety_stop() -> str:
-    return command("safety.stop", "smoke-stop", 1, 0, {})
 
 
 @dataclass
@@ -165,10 +162,17 @@ def isolated(scenario: str, callback) -> None:
 
 def scenario_session_and_pose(probe: RosProbe) -> None:
     probe.publish(session_start())
-    probe.collect(1, time.monotonic() + 2)
+    first = probe.collect(1, time.monotonic() + 2)[0]
+    assert first["event_type"] == "gateway.state"
+    assert first["state"] == "AWAITING_RECENTER"
+    assert first["session_id"] == "smoke-session"
+    assert first["sequence"] == 1
     probe.publish(recenter())
     recenter_event = probe.collect(1, time.monotonic() + 2)[0]
+    assert recenter_event["event_type"] == "gateway.state"
     assert recenter_event["state"] == "HEAD_ACTIVE"
+    assert recenter_event["session_id"] == "smoke-session"
+    assert recenter_event["sequence"] == 2
     probe.publish(pose())
     pose_event = probe.collect(1, time.monotonic() + 2)[0]
     assert pose_event["event_type"] == "neck.target"
@@ -241,7 +245,7 @@ def gateway_smoke() -> None:
         rclpy.shutdown()
 
 
-def websocket_smoke(timeout: float) -> int:
+def websocket_smoke(timeout: float, smoke_port: int) -> int:
     try:
         import websocket
     except ImportError:
@@ -249,7 +253,7 @@ def websocket_smoke(timeout: float) -> int:
         return 2
 
     process = subprocess.Popen(
-        LAUNCH_COMMAND,
+        LAUNCH_COMMAND + [f"rosbridge_port:={smoke_port}"],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -260,19 +264,33 @@ def websocket_smoke(timeout: float) -> int:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
-                with socket.create_connection(("127.0.0.1", 9090), timeout=0.2):
+                with socket.create_connection(("127.0.0.1", smoke_port), timeout=0.2):
                     break
             except OSError:
                 time.sleep(0.1)
         else:
-            raise RuntimeError("rosbridge WebSocket did not open on loopback:9090")
-        with websocket.create_connection("ws://127.0.0.1:9090", timeout=timeout) as client:
+            raise RuntimeError(
+                f"rosbridge WebSocket did not open on loopback:{smoke_port}"
+            )
+        with websocket.create_connection(
+            f"ws://127.0.0.1:{smoke_port}", timeout=timeout
+        ) as client:
             client.send(json.dumps({"op": "subscribe", "topic": EVENT_TOPIC}))
-            client.send(json.dumps({"op": "publish", "topic": COMMAND_TOPIC, "msg": json.loads(session_start())}))
+            client.send(
+                json.dumps(
+                    {
+                        "op": "publish",
+                        "topic": COMMAND_TOPIC,
+                        "msg": {"data": session_start()},
+                    }
+                )
+            )
             while time.monotonic() < deadline:
                 document = json.loads(client.recv())
                 if document.get("topic") == EVENT_TOPIC:
-                    assert document["msg"]["state"] == "AWAITING_RECENTER"
+                    event = json.loads(document["msg"]["data"])
+                    assert event["event_type"] == "gateway.state"
+                    assert event["state"] == "AWAITING_RECENTER"
                     print("rosbridge WebSocket loopback smoke: PASS")
                     return 0
         raise RuntimeError("rosbridge did not return the expected event")
@@ -290,11 +308,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("gateway", "rosbridge"), default="gateway")
     parser.add_argument("--timeout", type=float, default=15.0)
+    parser.add_argument("--ros-domain-id", type=int, default=DEFAULT_ROS_DOMAIN_ID)
+    parser.add_argument("--smoke-port", type=int, default=DEFAULT_SMOKE_PORT)
     args = parser.parse_args()
+    os.environ["ROS_DOMAIN_ID"] = str(args.ros_domain_id)
     if args.mode == "gateway":
         gateway_smoke()
         return 0
-    return websocket_smoke(args.timeout)
+    return websocket_smoke(args.timeout, args.smoke_port)
 
 
 if __name__ == "__main__":

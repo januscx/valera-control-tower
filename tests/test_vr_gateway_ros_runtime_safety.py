@@ -50,3 +50,38 @@ def test_smoke_scenarios_name_required_ordered_events_and_safety_states():
         "ESTOP_LATCHED",
     ):
         assert text in source
+
+
+def test_smoke_uses_isolated_domain_and_configurable_rosbridge_port():
+    source = (ROOT / "scripts" / "smoke_vr_gateway_ros2.py").read_text(
+        encoding="utf-8"
+    )
+    assert "ROS_DOMAIN_ID" in source
+    assert "--ros-domain-id" in source
+    assert "--smoke-port" in source
+    assert "rosbridge_port:=" in source
+    assert "DEFAULT_SMOKE_PORT" in source
+
+
+def test_websocket_smoke_uses_std_msgs_string_wire_shape():
+    source = (ROOT / "scripts" / "smoke_vr_gateway_ros2.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"msg": {"data": session_start()}' in source
+    assert 'json.loads(document["msg"]["data"])' in source
+
+
+def test_smoke_asserts_first_session_transition_and_correlation():
+    source = (ROOT / "scripts" / "smoke_vr_gateway_ros2.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'first["event_type"] == "gateway.state"' in source
+    assert 'first["state"] == "AWAITING_RECENTER"' in source
+    assert 'first["sequence"] == 1' in source
+
+
+def test_smoke_has_no_unused_safety_stop_command_helper():
+    source = (ROOT / "scripts" / "smoke_vr_gateway_ros2.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def safety_stop" not in source
