@@ -279,17 +279,39 @@ def websocket_smoke(timeout: float, smoke_port: int) -> int:
             f"ws://127.0.0.1:{smoke_port}", timeout=timeout
         )
         try:
-            client.send(json.dumps({"op": "subscribe", "topic": EVENT_TOPIC}))
+            client.send(
+                json.dumps(
+                    {
+                        "op": "subscribe",
+                        "id": "subscribe-1",
+                        "topic": EVENT_TOPIC,
+                    }
+                )
+            )
+            while time.monotonic() < deadline:
+                client.settimeout(max(0.1, deadline - time.monotonic()))
+                document = json.loads(client.recv())
+                if (
+                    document.get("op") == "status"
+                    and document.get("id") == "subscribe-1"
+                ):
+                    if document.get("level") != "info":
+                        raise RuntimeError(f"rosbridge subscribe failed: {document}")
+                    break
+            else:
+                raise RuntimeError("rosbridge subscribe confirmation timed out")
             client.send(
                 json.dumps(
                     {
                         "op": "publish",
+                        "id": "publish-1",
                         "topic": COMMAND_TOPIC,
                         "msg": {"data": session_start()},
                     }
                 )
             )
             while time.monotonic() < deadline:
+                client.settimeout(max(0.1, deadline - time.monotonic()))
                 document = json.loads(client.recv())
                 if document.get("topic") == EVENT_TOPIC:
                     event = json.loads(document["msg"]["data"])

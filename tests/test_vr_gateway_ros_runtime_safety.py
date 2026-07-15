@@ -70,6 +70,8 @@ def test_websocket_smoke_uses_std_msgs_string_wire_shape():
     assert '"msg": {"data": session_start()}' in source
     assert 'json.loads(document["msg"]["data"])' in source
     assert "client.close()" in source
+    assert '"id": "subscribe-1"' in source
+    assert 'document.get("id") == "subscribe-1"' in source
 
 
 def test_smoke_asserts_first_session_transition_and_correlation():
