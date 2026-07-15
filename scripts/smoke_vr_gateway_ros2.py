@@ -288,18 +288,10 @@ def websocket_smoke(timeout: float, smoke_port: int) -> int:
                     }
                 )
             )
-            while time.monotonic() < deadline:
-                client.settimeout(max(0.1, deadline - time.monotonic()))
-                document = json.loads(client.recv())
-                if (
-                    document.get("op") == "status"
-                    and document.get("id") == "subscribe-1"
-                ):
-                    if document.get("level") != "info":
-                        raise RuntimeError(f"rosbridge subscribe failed: {document}")
-                    break
-            else:
-                raise RuntimeError("rosbridge subscribe confirmation timed out")
+            # Jazzy rosbridge logs successful subscription registration but
+            # does not emit a status frame for it. Allow that callback to
+            # complete before publishing the first event-producing command.
+            time.sleep(0.2)
             client.send(
                 json.dumps(
                     {
