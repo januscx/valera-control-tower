@@ -50,7 +50,8 @@ def test_client_has_rosbridge_envelope_and_contract_pipeline():
 def test_session_guards_pose_and_recenter_and_uses_monotonic_time():
     source = (RUNTIME / "Session" / "QuestHeadSession.cs").read_text()
     assert "AWAITING_RECENTER" in source
-    assert "HEAD_ACTIVE" in source
+    # HEAD_ACTIVE renamed to ACTIVE in v0.2; C# updated in Tasks 6-7
+    assert "ACTIVE" in source or "HEAD_ACTIVE" in source
     assert "CanSendPose" in source
     assert "CanRecenter" in source
     assert "Stopwatch" in source or "monotonic" in source.lower()
