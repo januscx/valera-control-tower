@@ -11,6 +11,7 @@ from robot.vr_gateway.messages import (
     CommandEnvelope,
     CommandName,
     CommandRejectedEvent,
+    ControlMode,
     EmptyPayload,
     EventName,
     GatewayState,
@@ -329,7 +330,7 @@ def test_decode_rejects_non_object_envelope_and_non_string_input():
 def test_encode_event_serializes_all_four_event_types_with_exact_keys():
     from robot.vr_gateway.messages import CommandRejectedEvent
 
-    state_event = GatewayStateEvent(11, GatewayState.HEAD_ACTIVE, "s-1", 2)
+    state_event = GatewayStateEvent(11, GatewayState.ACTIVE, ControlMode.HEAD_ONLY, "s-1", 2)
     neck_event = NeckTargetEvent(22, "s-1", 3, 1.25, -2.5)
     stop_event = SafetyStopEvent(33, StopReason.WATCHDOG, "s-1", 4)
     rejected_event = CommandRejectedEvent(
@@ -339,7 +340,7 @@ def test_encode_event_serializes_all_four_event_types_with_exact_keys():
     state_doc = json.loads(wire.encode_event(state_event))
     assert state_doc == {
         "gateway_monotonic_ns": 11,
-        "state": "HEAD_ACTIVE",
+        "state": "ACTIVE",
         "session_id": "s-1",
         "sequence": 2,
         "schema_version": "0.1",
@@ -381,7 +382,7 @@ def test_encode_event_serializes_all_four_event_types_with_exact_keys():
 
 
 def test_encode_event_serializes_nullable_event_correlation_as_null():
-    event = GatewayStateEvent(5, GatewayState.IDLE, None, None)
+    event = GatewayStateEvent(5, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None)
     doc = json.loads(wire.encode_event(event))
     assert doc["session_id"] is None
     assert doc["sequence"] is None
@@ -423,9 +424,9 @@ def test_adapter_accepts_valid_stream_and_returns_encoded_events_in_order():
     assert [json.loads(e)["event_type"] for e in start_events] == ["gateway.state"]
     assert json.loads(start_events[0])["state"] == "AWAITING_RECENTER"
     assert [json.loads(e)["event_type"] for e in recenter_events] == ["gateway.state"]
-    assert json.loads(recenter_events[0])["state"] == "HEAD_ACTIVE"
+    assert json.loads(recenter_events[0])["state"] == "ACTIVE"
     assert [json.loads(e)["event_type"] for e in pose_events] == ["neck.target"]
-    assert gateway.state is GatewayState.HEAD_ACTIVE
+    assert gateway.state is GatewayState.ACTIVE
 
 
 def test_adapter_preserves_order_of_multiple_events_from_session_stop():
@@ -685,7 +686,7 @@ def test_decode_rejects_unbalanced_brackets_in_depth_scanner():
 
 def test_encode_event_rejects_plain_string_for_state_enum():
     event = _mutated_event(
-        GatewayStateEvent(1, GatewayState.IDLE, None, None), state="IDLE"
+        GatewayStateEvent(1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None), state="IDLE"
     )
     with pytest.raises(wire.WireError, match="GatewayState"):
         wire.encode_event(event)
@@ -710,7 +711,7 @@ def test_encode_event_rejects_plain_string_for_rejection_code_enum():
 
 def test_encode_event_rejects_plain_string_for_event_type_enum():
     event = _mutated_event(
-        GatewayStateEvent(1, GatewayState.IDLE, None, None),
+        GatewayStateEvent(1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None),
         event_type="gateway.state",
     )
     with pytest.raises(wire.WireError, match="event_type"):
@@ -1008,7 +1009,7 @@ def test_encode_event_rejects_unsupported_object():
 
 
 def test_encode_event_rejects_event_with_wrong_event_type():
-    event = GatewayStateEvent(1, GatewayState.IDLE, None, None)
+    event = GatewayStateEvent(1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None)
     bad = _mutated_event(
         event,
         event_type=EventName.NECK_TARGET,
@@ -1018,20 +1019,20 @@ def test_encode_event_rejects_event_with_wrong_event_type():
 
 
 def test_encode_event_rejects_event_with_wrong_schema_version():
-    event = GatewayStateEvent(1, GatewayState.IDLE, None, None)
+    event = GatewayStateEvent(1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None)
     bad = _mutated_event(event, schema_version="0.2")
     with pytest.raises(wire.WireError, match="schema_version"):
         wire.encode_event(bad)
 
 
 def test_encode_event_rejects_negative_gateway_monotonic_ns():
-    event = GatewayStateEvent(-1, GatewayState.IDLE, None, None)
+    event = GatewayStateEvent(-1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None)
     with pytest.raises(wire.WireError, match="gateway_monotonic_ns"):
         wire.encode_event(event)
 
 
 def test_encode_event_rejects_overflow_gateway_monotonic_ns():
-    event = GatewayStateEvent(wire.MAX_INT64 + 1, GatewayState.IDLE, None, None)
+    event = GatewayStateEvent(wire.MAX_INT64 + 1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None)
     with pytest.raises(wire.WireError, match="gateway_monotonic_ns"):
         wire.encode_event(event)
 
@@ -1049,13 +1050,13 @@ def test_encode_event_rejects_infinity_tilt_degrees():
 
 
 def test_encode_event_rejects_partial_correlation_session_only():
-    event = GatewayStateEvent(1, GatewayState.IDLE, "s-1", None)
+    event = GatewayStateEvent(1, GatewayState.IDLE, ControlMode.HEAD_ONLY, "s-1", None)
     with pytest.raises(wire.WireError, match="correlation"):
         wire.encode_event(event)
 
 
 def test_encode_event_rejects_partial_correlation_sequence_only():
-    event = GatewayStateEvent(1, GatewayState.HEAD_ACTIVE, None, 5)
+    event = GatewayStateEvent(1, GatewayState.ACTIVE, ControlMode.HEAD_ONLY, None, 5)
     with pytest.raises(wire.WireError, match="correlation"):
         wire.encode_event(event)
 
@@ -1080,7 +1081,7 @@ def test_encode_event_rejects_neck_target_with_out_of_range_sequence():
 
 def test_encode_event_rejects_unknown_gateway_state():
     event = _mutated_event(
-        GatewayStateEvent(1, GatewayState.IDLE, None, None), state="FROBNICATING"
+        GatewayStateEvent(1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None), state="FROBNICATING"
     )
     with pytest.raises(wire.WireError, match="state"):
         wire.encode_event(event)

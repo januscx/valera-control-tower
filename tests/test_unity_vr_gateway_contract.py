@@ -134,9 +134,9 @@ def test_malformed_command_payload_fails_closed_in_python_gateway():
 
 
 def test_python_event_correlation_serializes_as_null_when_unavailable():
-    from robot.vr_gateway.messages import GatewayState, GatewayStateEvent
+    from robot.vr_gateway.messages import ControlMode, GatewayState, GatewayStateEvent
 
-    event = GatewayStateEvent(1, GatewayState.IDLE, None, None)
+    event = GatewayStateEvent(1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None)
     serialized = json.loads(json.dumps({k: v for k, v in event.__dict__.items()}))
 
     assert serialized["session_id"] is None
@@ -146,9 +146,9 @@ def test_python_event_correlation_serializes_as_null_when_unavailable():
 
 
 def test_python_event_correlation_serializes_values_when_available():
-    from robot.vr_gateway.messages import GatewayState, GatewayStateEvent
+    from robot.vr_gateway.messages import ControlMode, GatewayState, GatewayStateEvent
 
-    event = GatewayStateEvent(1, GatewayState.HEAD_ACTIVE, "s-1", 2)
+    event = GatewayStateEvent(1, GatewayState.ACTIVE, ControlMode.HEAD_ONLY, "s-1", 2)
     serialized = json.loads(json.dumps({k: v for k, v in event.__dict__.items()}))
 
     assert serialized["session_id"] == "s-1"

@@ -20,7 +20,7 @@ def test_simulated_head_sequence_reaches_watchdog_safe_stop():
     ]
     assert [event.get("state") for event in events if "state" in event] == [
         "AWAITING_RECENTER",
-        "HEAD_ACTIVE",
+        "ACTIVE",
         "SAFE_STOPPED",
     ]
     assert all(event["schema_version"] == "0.1" for event in events)

@@ -13,6 +13,18 @@ class MessageValidationError(ValueError):
     pass
 
 
+class ControlMode(str, Enum):
+    HEAD_ONLY = "HEAD_ONLY"
+    DRIVE = "DRIVE"
+    ARM = "ARM"
+
+
+class ModeTransition(str, Enum):
+    NONE = "NONE"
+    STOPPING_BASE = "STOPPING_BASE"
+    STOPPING_ARM = "STOPPING_ARM"
+
+
 class CommandName(str, Enum):
     SESSION_START = "session.start"
     SESSION_STOP = "session.stop"
@@ -20,12 +32,15 @@ class CommandName(str, Enum):
     HEAD_POSE = "head.pose"
     HEAD_RECENTER = "head.recenter"
     EMERGENCY_STOP = "emergency_stop"
+    EMERGENCY_STOP_RESET = "emergency_stop.reset"
+    BASE_DRIVE = "base.drive"
+    ARM_JOG = "arm.jog"
 
 
 class GatewayState(str, Enum):
     IDLE = "IDLE"
     AWAITING_RECENTER = "AWAITING_RECENTER"
-    HEAD_ACTIVE = "HEAD_ACTIVE"
+    ACTIVE = "ACTIVE"
     SAFE_STOPPED = "SAFE_STOPPED"
     ESTOP_LATCHED = "ESTOP_LATCHED"
 
@@ -53,6 +68,9 @@ class EventName(str, Enum):
     NECK_TARGET = "neck.target"
     SAFETY_STOP = "safety.stop"
     COMMAND_REJECTED = "command.rejected"
+    BASE_TARGET = "base.target"
+    ARM_TARGET = "arm.target"
+    BASE_STOP_ACK = "base.stop_ack"
 
 
 @dataclass(frozen=True)
@@ -129,7 +147,46 @@ class EmptyPayload:
     pass
 
 
-Payload: TypeAlias = SessionStartPayload | ModeSetPayload | PosePayload | EmptyPayload
+@dataclass(frozen=True)
+class BaseDrivePayload:
+    throttle: float
+    steering: float
+    deadman: bool
+
+    def __post_init__(self) -> None:
+        _finite_json_number(self.throttle, "throttle")
+        _finite_json_number(self.steering, "steering")
+        if not -1.0 <= self.throttle <= 1.0:
+            raise MessageValidationError("throttle must be in [-1.0, 1.0]")
+        if not -1.0 <= self.steering <= 1.0:
+            raise MessageValidationError("steering must be in [-1.0, 1.0]")
+        if type(self.deadman) is not bool:
+            raise MessageValidationError("deadman must be a boolean")
+
+
+@dataclass(frozen=True)
+class ArmJogPayload:
+    kind: str
+    deadman: bool
+    joint_velocity: dict[str, float]
+
+    def __post_init__(self) -> None:
+        if self.kind != "JOINT_JOG":
+            raise MessageValidationError("kind must be JOINT_JOG")
+        if type(self.deadman) is not bool:
+            raise MessageValidationError("deadman must be a boolean")
+        if type(self.joint_velocity) is not dict or not self.joint_velocity:
+            raise MessageValidationError("joint_velocity must be a non-empty dict")
+        for name, value in self.joint_velocity.items():
+            _require_nonempty_string(name, "joint name")
+            _finite_json_number(value, "joint velocity")
+            if not -1.0 <= value <= 1.0:
+                raise MessageValidationError(
+                    f"joint {name} velocity must be in [-1.0, 1.0]"
+                )
+
+
+Payload: TypeAlias = SessionStartPayload | ModeSetPayload | PosePayload | EmptyPayload | BaseDrivePayload | ArmJogPayload
 
 
 @dataclass(frozen=True)
@@ -173,6 +230,10 @@ def _validate_payload(payload: object) -> None:
         payload.__post_init__()
     elif type(payload) is PosePayload:
         payload.__post_init__()
+    elif type(payload) is BaseDrivePayload:
+        payload.__post_init__()
+    elif type(payload) is ArmJogPayload:
+        payload.__post_init__()
     elif type(payload) is not EmptyPayload:
         raise MessageValidationError("payload must be an approved payload model")
 
@@ -211,12 +272,22 @@ def _require_nonempty_string(value: object, field_name: str) -> None:
         raise MessageValidationError(f"{field_name} must be a non-empty string")
 
 
+def _validate_int_field(value: object, field_name: str, minimum: int = 0) -> None:
+    if type(value) is not int:
+        raise MessageValidationError(f"{field_name} must be an integer")
+    if value < minimum:
+        raise MessageValidationError(f"{field_name} must be non-negative")
+
+
 @dataclass(frozen=True)
 class GatewayStateEvent:
     gateway_monotonic_ns: int
     state: GatewayState
+    current_mode: ControlMode
     session_id: str | None
     sequence: int | None
+    requested_mode: ControlMode | None = None
+    transition: ModeTransition = ModeTransition.NONE
     schema_version: str = SCHEMA_VERSION
     event_type: EventName = EventName.GATEWAY_STATE
 
@@ -257,4 +328,78 @@ class CommandRejectedEvent:
     event_type: EventName = EventName.COMMAND_REJECTED
 
 
-OutputEvent: TypeAlias = GatewayStateEvent | NeckTargetEvent | SafetyStopEvent | CommandRejectedEvent
+@dataclass(frozen=True)
+class BaseTargetEvent:
+    gateway_monotonic_ns: int
+    throttle: float
+    steering: float
+    deadman: bool
+    command_zeroed: bool
+    schema_version: str = SCHEMA_VERSION
+    event_type: EventName = EventName.BASE_TARGET
+
+    def __post_init__(self) -> None:
+        _validate_int_field(self.gateway_monotonic_ns, "gateway_monotonic_ns", minimum=0)
+        for name in ("throttle", "steering"):
+            value = getattr(self, name)
+            if type(value) is bool or type(value) not in (int, float) or not isfinite(value):
+                raise MessageValidationError(f"{name} must be a finite number")
+            if not -1.0 <= value <= 1.0:
+                raise MessageValidationError(f"{name} must be in [-1.0, 1.0]")
+        if type(self.deadman) is not bool:
+            raise MessageValidationError("deadman must be a boolean")
+        if type(self.command_zeroed) is not bool:
+            raise MessageValidationError("command_zeroed must be a boolean")
+
+
+@dataclass(frozen=True)
+class ArmTargetEvent:
+    gateway_monotonic_ns: int
+    kind: str
+    deadman: bool
+    command_zeroed: bool
+    joint_velocity: dict[str, float]
+    schema_version: str = SCHEMA_VERSION
+    event_type: EventName = EventName.ARM_TARGET
+
+    def __post_init__(self) -> None:
+        _validate_int_field(self.gateway_monotonic_ns, "gateway_monotonic_ns", minimum=0)
+        if self.kind != "JOINT_JOG":
+            raise MessageValidationError("kind must be JOINT_JOG")
+        if type(self.deadman) is not bool:
+            raise MessageValidationError("deadman must be a boolean")
+        if type(self.command_zeroed) is not bool:
+            raise MessageValidationError("command_zeroed must be a boolean")
+        if type(self.joint_velocity) is not dict or not self.joint_velocity:
+            raise MessageValidationError("joint_velocity must be a non-empty dict")
+        for name, value in self.joint_velocity.items():
+            if not -1.0 <= value <= 1.0:
+                raise MessageValidationError(
+                    f"joint {name} velocity must be in [-1.0, 1.0]"
+                )
+
+
+@dataclass(frozen=True)
+class BaseStopAckEvent:
+    gateway_monotonic_ns: int
+    command_zeroed: bool
+    stationary_verified: bool
+    schema_version: str = SCHEMA_VERSION
+    event_type: EventName = EventName.BASE_STOP_ACK
+
+    def __post_init__(self) -> None:
+        if type(self.command_zeroed) is not bool:
+            raise MessageValidationError("command_zeroed must be a boolean")
+        if type(self.stationary_verified) is not bool:
+            raise MessageValidationError("stationary_verified must be a boolean")
+
+
+OutputEvent: TypeAlias = (
+    GatewayStateEvent
+    | NeckTargetEvent
+    | SafetyStopEvent
+    | CommandRejectedEvent
+    | BaseTargetEvent
+    | ArmTargetEvent
+    | BaseStopAckEvent
+)

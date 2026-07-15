@@ -8,6 +8,7 @@ from robot.vr_gateway.messages import (
     CommandEnvelope,
     CommandName,
     CommandRejectedEvent,
+    ControlMode,
     EmptyPayload,
     GatewayState,
     GatewayStateEvent,
@@ -55,6 +56,7 @@ class VrGateway:
         self.clock = clock
         self.config = config
         self.state = GatewayState.IDLE
+        self.current_mode = ControlMode.HEAD_ONLY
         self.used_session_ids: set[str] = set()
         self.active_session_id: str | None = None
         self.last_sequence: int | None = None
@@ -146,7 +148,7 @@ class VrGateway:
             return (transition,) if transition is not None else ()
 
         if (
-            self.state is GatewayState.HEAD_ACTIVE
+            self.state is GatewayState.ACTIVE
             and self.last_valid_packet_received_monotonic_ns is not None
             and now_ns - self.last_valid_packet_received_monotonic_ns
             >= self.config.motion_watchdog_timeout_ns
@@ -210,9 +212,9 @@ class VrGateway:
         self, command: CommandEnvelope, now_ns: int
     ) -> tuple[OutputEvent, ...]:
         assert isinstance(command.payload, PosePayload)
-        if self.state not in {GatewayState.AWAITING_RECENTER, GatewayState.HEAD_ACTIVE}:
+        if self.state not in {GatewayState.AWAITING_RECENTER, GatewayState.ACTIVE}:
             return (self._reject(command, RejectionCode.MODE_BLOCKED, now_ns),)
-        was_active = self.state is GatewayState.HEAD_ACTIVE
+        was_active = self.state is GatewayState.ACTIVE
         self.neck_controller.recenter(
             command.payload.orientation.normalized(),
             now_ns,
@@ -220,7 +222,7 @@ class VrGateway:
         )
         self._accept(command, now_ns)
         transition = self._transition(
-            GatewayState.HEAD_ACTIVE,
+            GatewayState.ACTIVE,
             command.session_id,
             command.sequence,
             now_ns,
@@ -231,7 +233,7 @@ class VrGateway:
         self, command: CommandEnvelope, now_ns: int
     ) -> tuple[OutputEvent, ...]:
         assert isinstance(command.payload, PosePayload)
-        if self.state is not GatewayState.HEAD_ACTIVE:
+        if self.state is not GatewayState.ACTIVE:
             return (self._reject(command, RejectionCode.MODE_BLOCKED, now_ns),)
         target = self.neck_controller.update(
             command.payload.orientation.normalized(),
@@ -313,7 +315,9 @@ class VrGateway:
         if self.state is state:
             return None
         self.state = state
-        return GatewayStateEvent(now_ns, state, session_id, sequence)
+        return GatewayStateEvent(
+            now_ns, state, self.current_mode, session_id, sequence
+        )
 
     def _reject(
         self,

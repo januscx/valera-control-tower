@@ -40,7 +40,7 @@ def test_smoke_scenarios_name_required_ordered_events_and_safety_states():
         "session.start",
         "AWAITING_RECENTER",
         "head.recenter",
-        "HEAD_ACTIVE",
+        "ACTIVE",
         "head.pose",
         "neck.target",
         "SAFE_STOPPED",

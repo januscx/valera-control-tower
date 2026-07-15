@@ -5,6 +5,7 @@ from robot.vr_gateway.messages import (
     CommandEnvelope,
     CommandName,
     CommandRejectedEvent,
+    ControlMode,
     EmptyPayload,
     GatewayState,
     GatewayStateEvent,
@@ -180,7 +181,7 @@ def test_session_start_requires_sequence_one_and_enters_awaiting_recenter():
 
     assert invalid.code is RejectionCode.INVALID_PAYLOAD
     assert events == (
-        GatewayStateEvent(0, GatewayState.AWAITING_RECENTER, "session-a", 1),
+        GatewayStateEvent(0, GatewayState.AWAITING_RECENTER, ControlMode.HEAD_ONLY, "session-a", 1),
     )
     assert gateway.state is GatewayState.AWAITING_RECENTER
 
@@ -216,7 +217,7 @@ def test_new_session_invalidates_previous_session():
     )
 
     assert events == (
-        GatewayStateEvent(0, GatewayState.AWAITING_RECENTER, "session-b", 1),
+        GatewayStateEvent(0, GatewayState.AWAITING_RECENTER, ControlMode.HEAD_ONLY, "session-b", 1),
     )
     assert old_session.code is RejectionCode.SESSION_MISMATCH
 
@@ -476,7 +477,7 @@ def test_first_recenter_enters_head_active_without_neck_target():
     events = recenter(gateway, orientation=Quaternion(0.0, 0.0, 0.0, 2.0))
 
     assert events == (
-        GatewayStateEvent(0, GatewayState.HEAD_ACTIVE, "session-a", 2),
+        GatewayStateEvent(0, GatewayState.ACTIVE, ControlMode.HEAD_ONLY, "session-a", 2),
     )
     assert not any(isinstance(event, NeckTargetEvent) for event in events)
 
@@ -549,7 +550,7 @@ def test_session_stop_enters_idle_and_emits_safe_hold_actions():
     )
 
     assert events == (
-        GatewayStateEvent(0, GatewayState.IDLE, "session-a", 3),
+        GatewayStateEvent(0, GatewayState.IDLE, ControlMode.HEAD_ONLY, "session-a", 3),
         SafetyStopEvent(0, StopReason.SESSION_STOPPED, "session-a", 3),
     )
     assert events[1].neck_action == "HOLD_LAST_POSITION"
@@ -570,6 +571,7 @@ def test_handshake_timeout_returns_to_idle_without_safety_stop():
         GatewayStateEvent(
             10_000_000_000,
             GatewayState.IDLE,
+            ControlMode.HEAD_ONLY,
             "session-a",
             1,
         ),
@@ -644,6 +646,7 @@ def test_late_recenter_expires_handshake_without_preceding_poll(elapsed_ms):
         GatewayStateEvent(
             elapsed_ms * 1_000_000,
             GatewayState.IDLE,
+            ControlMode.HEAD_ONLY,
             "session-a",
             1,
         ),
@@ -865,6 +868,7 @@ def test_watchdog_recovery_requires_unique_session_and_new_recenter():
         GatewayStateEvent(
             250_000_000,
             GatewayState.AWAITING_RECENTER,
+            ControlMode.HEAD_ONLY,
             "session-b",
             1,
         ),
@@ -872,7 +876,7 @@ def test_watchdog_recovery_requires_unique_session_and_new_recenter():
     assert rejection(before_recenter).code is RejectionCode.MODE_BLOCKED
     assert not any(isinstance(item, NeckTargetEvent) for item in before_recenter)
     assert activated == (
-        GatewayStateEvent(250_000_000, GatewayState.HEAD_ACTIVE, "session-b", 3),
+        GatewayStateEvent(250_000_000, GatewayState.ACTIVE, ControlMode.HEAD_ONLY, "session-b", 3),
     )
 
 
