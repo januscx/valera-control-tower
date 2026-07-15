@@ -127,6 +127,15 @@ def test_lifecycle_has_reconnect_close_and_single_cleanup_guards():
     assert "session.Close()" in source
 
 
+def test_behaviour_connect_guard_reopens_only_after_cleanup_resets_stopping():
+    source = (RUNTIME / "QuestHeadClientBehaviour.cs").read_text()
+    connect_guard = source.split("public void Connect()", 1)[1].split("_ = ConnectRoutine", 1)[0]
+    cleanup_tail = source.split("private async Task CleanupRoutine", 1)[1]
+    assert "stopping" in connect_guard
+    assert "if (!destroyed)" in cleanup_tail
+    assert cleanup_tail.index("stopping = false") < cleanup_tail.index("cleanupGate.Release()")
+
+
 def test_pi5_rosbridge_launch_keeps_explicit_lan_opt_in_and_exact_allowlist():
     source = LAUNCH.read_text()
     assert 'DeclareLaunchArgument("rosbridge_address", default_value="127.0.0.1")' in source

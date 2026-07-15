@@ -219,6 +219,10 @@ namespace Valera.QuestHeadClient
                     debugPanel?.SetSocketState("Disconnected");
                     if (reason != null) debugPanel?.SetError(reason.Message);
                 });
+                if (!destroyed)
+                {
+                    stopping = false;
+                }
                 cleanupGate.Release();
             }
         }
