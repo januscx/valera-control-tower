@@ -21,9 +21,7 @@ namespace Valera.QuestHeadClient
 
         private readonly ConcurrentQueue<Action> mainThreadActions = new ConcurrentQueue<Action>();
         private QuestHeadSession session;
-        private IQuestTransport transport;
-        private CancellationTokenSource receiveCancellation;
-        private Task receiveTask;
+        private VrGatewayWebSocket gatewayWebSocket;
         private int mainThreadId;
         private bool stopping;
         private bool destroyed;
@@ -82,14 +80,12 @@ namespace Valera.QuestHeadClient
             try
             {
                 debugPanel?.SetSocketState("Connecting");
-                transport?.Dispose();
-                transport = new ClientWebSocketQuestTransport();
-                receiveCancellation = new CancellationTokenSource();
-                await transport.ConnectAsync(new Uri($"ws://{pi5Address}:{pi5Port}"), receiveCancellation.Token);
-                await SendRawAsync(RosbridgeEnvelopeCodec.EncodeAdvertise("/valera/vr_gateway/command", "std_msgs/msg/String"), receiveCancellation.Token);
-                await SendRawAsync(RosbridgeEnvelopeCodec.EncodeSubscribe("/valera/vr_gateway/event"), receiveCancellation.Token);
-                receiveTask = ReceiveLoop(receiveCancellation.Token);
-                SendCommand(startCommand);
+                gatewayWebSocket?.Dispose();
+                gatewayWebSocket = new VrGatewayWebSocket();
+                gatewayWebSocket.OnEventReceived += OnGatewayEventReceived;
+                gatewayWebSocket.OnDisconnected += OnGatewayDisconnected;
+                await gatewayWebSocket.Connect($"ws://{pi5Address}:{pi5Port}");
+                await gatewayWebSocket.SendCommand(startCommand);
                 debugPanel?.SetSocketState("Open");
                 debugPanel?.SetSession(session.SessionId);
             }
@@ -103,35 +99,22 @@ namespace Valera.QuestHeadClient
             }
         }
 
-        private async Task ReceiveLoop(CancellationToken cancellationToken)
+        private void OnGatewayEventReceived(string innerJson)
         {
-            try
-            {
-                while (!cancellationToken.IsCancellationRequested)
-                {
-                    string envelope = await transport.ReceiveAsync(cancellationToken);
-                    if (envelope == null)
-                    {
-                        QueueMainThread(() => HandleTransportError(new WebSocketException("Remote WebSocket close frame received.")));
-                        return;
-                    }
-                    QueueMainThread(() => HandleInbound(envelope));
-                }
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception exception)
-            {
-                QueueMainThread(() => HandleTransportError(exception));
-            }
+            QueueMainThread(() => HandleInbound(innerJson));
         }
 
-        private void HandleInbound(string envelope)
+        private void OnGatewayDisconnected()
+        {
+            QueueMainThread(() => BeginCleanup(false, new WebSocketException("Remote WebSocket close frame received.")));
+        }
+
+        private void HandleInbound(string inner)
         {
             rxCount++;
             debugPanel?.SetCounters(txCount, rxCount);
             try
             {
-                string inner = RosbridgeEnvelopeCodec.DecodeMessageData(envelope);
                 bool accepted = session.HandleEvent(inner);
                 object decoded = WireCodec.DecodeEvent(inner);
                 if (decoded is NeckTargetEventDto target)
@@ -151,7 +134,7 @@ namespace Valera.QuestHeadClient
 
         private void SendCommand(string innerJson)
         {
-            if (string.IsNullOrEmpty(innerJson) || transport == null || !transport.IsOpen) return;
+            if (string.IsNullOrEmpty(innerJson) || gatewayWebSocket == null || !gatewayWebSocket.IsConnected) return;
             _ = SendCommandSafely(innerJson);
         }
 
@@ -159,28 +142,12 @@ namespace Valera.QuestHeadClient
         {
             try
             {
-                await SendRawAsync(RosbridgeEnvelopeCodec.EncodePublish("/valera/vr_gateway/command", innerJson), CancellationToken.None);
+                await gatewayWebSocket.SendCommand(innerJson);
+                QueueMainThread(() => { txCount++; debugPanel?.SetCounters(txCount, rxCount); });
             }
             catch (Exception exception)
             {
                 QueueMainThread(() => HandleTransportError(exception));
-            }
-        }
-
-        private async Task SendRawAsync(string text, CancellationToken cancellationToken)
-        {
-            try
-            {
-                await transport.SendAsync(text, cancellationToken);
-                QueueMainThread(() => { txCount++; debugPanel?.SetCounters(txCount, rxCount); });
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch
-            {
-                throw;
             }
         }
 
@@ -196,23 +163,18 @@ namespace Valera.QuestHeadClient
         {
             try
             {
-                if (sendSessionStop && transport != null && transport.IsOpen && session.SessionConfirmed)
+                if (sendSessionStop && gatewayWebSocket != null && gatewayWebSocket.IsConnected && session.SessionConfirmed)
                 {
                     string stop = session.BuildBestEffortStop();
-                    if (stop != null) await SendRawAsync(RosbridgeEnvelopeCodec.EncodePublish("/valera/vr_gateway/command", stop), CancellationToken.None);
+                    if (stop != null) await gatewayWebSocket.SendCommand(stop);
                 }
             }
             catch (Exception exception) { reason = reason ?? exception; }
             finally
             {
-                receiveCancellation?.Cancel();
-                try { if (receiveTask != null) await receiveTask; } catch { }
-                try { if (transport != null) await transport.CloseAsync(CancellationToken.None); } catch { }
-                transport?.Dispose();
-                transport = null;
-                receiveCancellation?.Dispose();
-                receiveCancellation = null;
-                receiveTask = null;
+                try { if (gatewayWebSocket != null) await gatewayWebSocket.Disconnect(); } catch { }
+                gatewayWebSocket?.Dispose();
+                gatewayWebSocket = null;
                 session.Close();
                 QueueMainThread(() =>
                 {
@@ -242,6 +204,5 @@ namespace Valera.QuestHeadClient
         private void OnApplicationPause(bool pause) { if (pause) Disconnect(); }
         private void OnApplicationFocus(bool focus) { if (!focus) Disconnect(); }
         private void OnDestroy() { destroyed = true; BeginCleanup(true, null); }
-
     }
 }
