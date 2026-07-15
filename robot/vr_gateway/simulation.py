@@ -11,6 +11,8 @@ from typing import Callable
 
 from robot.vr_gateway.gateway import VrGateway
 from robot.vr_gateway.messages import (
+    ArmJogPayload,
+    BaseDrivePayload,
     CommandEnvelope,
     CommandName,
     PosePayload,
@@ -106,6 +108,96 @@ def run_simulated_head_sequence() -> list[dict[str, object]]:
     outputs.extend(gateway.poll())
 
     return [_event_to_dictionary(event) for event in outputs]
+
+
+def run_simulated_drive_sequence() -> list[dict[str, object]]:
+    """Start session with DRIVE, recenter, send base.drive."""
+    clock = _SimulationClock()
+    gateway = build_simulated_vr_gateway(clock)
+    outputs: list[object] = []
+    outputs.extend(
+        gateway.handle(
+            CommandEnvelope(
+                "0.1",
+                CommandName.SESSION_START,
+                SIMULATION_SESSION_ID,
+                1,
+                SIMULATION_SESSION_START_TIMESTAMP_MS,
+                SessionStartPayload("drive"),
+            )
+        )
+    )
+    outputs.extend(
+        gateway.handle(
+            CommandEnvelope(
+                "0.1",
+                CommandName.HEAD_RECENTER,
+                SIMULATION_SESSION_ID,
+                2,
+                SIMULATION_RECENTER_TIMESTAMP_MS,
+                PosePayload("quest_local", Quaternion(0.0, 0.0, 0.0, 1.0)),
+            )
+        )
+    )
+    clock.advance_ms(50)
+    outputs.extend(
+        gateway.handle(
+            CommandEnvelope(
+                "0.1",
+                CommandName.BASE_DRIVE,
+                SIMULATION_SESSION_ID,
+                3,
+                1050,
+                BaseDrivePayload(0.5, 0.0, True),
+            )
+        )
+    )
+    return [_event_to_dictionary(e) for e in outputs]
+
+
+def run_simulated_arm_sequence() -> list[dict[str, object]]:
+    """Start session with ARM, recenter, send arm.jog."""
+    clock = _SimulationClock()
+    gateway = build_simulated_vr_gateway(clock)
+    outputs: list[object] = []
+    outputs.extend(
+        gateway.handle(
+            CommandEnvelope(
+                "0.1",
+                CommandName.SESSION_START,
+                SIMULATION_SESSION_ID,
+                1,
+                SIMULATION_SESSION_START_TIMESTAMP_MS,
+                SessionStartPayload("arm"),
+            )
+        )
+    )
+    outputs.extend(
+        gateway.handle(
+            CommandEnvelope(
+                "0.1",
+                CommandName.HEAD_RECENTER,
+                SIMULATION_SESSION_ID,
+                2,
+                SIMULATION_RECENTER_TIMESTAMP_MS,
+                PosePayload("quest_local", Quaternion(0.0, 0.0, 0.0, 1.0)),
+            )
+        )
+    )
+    clock.advance_ms(50)
+    outputs.extend(
+        gateway.handle(
+            CommandEnvelope(
+                "0.1",
+                CommandName.ARM_JOG,
+                SIMULATION_SESSION_ID,
+                3,
+                1050,
+                ArmJogPayload("JOINT_JOG", True, {"shoulder_pan": 0.5}),
+            )
+        )
+    )
+    return [_event_to_dictionary(e) for e in outputs]
 
 
 def _event_to_dictionary(event: object) -> dict[str, object]:

@@ -2,10 +2,24 @@ import ast
 import json
 from pathlib import Path
 
+from robot.vr_gateway.messages import (
+    CommandEnvelope,
+    CommandName,
+    ControlMode,
+    ModeSetPayload,
+    ModeTransition,
+    PosePayload,
+    Quaternion,
+    SessionStartPayload,
+)
 from robot.vr_gateway.simulation import (
     SIMULATION_NECK_CONFIG,
+    build_simulated_vr_gateway,
+    run_simulated_arm_sequence,
+    run_simulated_drive_sequence,
     run_simulated_head_sequence,
 )
+from robot.vr_gateway.simulation import _SimulationClock
 
 
 def test_simulated_head_sequence_reaches_watchdog_safe_stop():
@@ -38,6 +52,81 @@ def test_simulated_head_sequence_reaches_watchdog_safe_stop():
 
 def test_simulated_head_sequence_is_repeatable():
     assert run_simulated_head_sequence() == run_simulated_head_sequence()
+
+
+def test_simulated_drive_sequence():
+    events = run_simulated_drive_sequence()
+
+    assert [event["event_type"] for event in events] == [
+        "gateway.state",
+        "gateway.state",
+        "base.target",
+    ]
+    assert all(event["schema_version"] == "0.1" for event in events)
+
+    target = events[2]
+    assert target["throttle"] > 0.0
+    assert target["steering"] == 0.0
+    assert target["deadman"] is True
+    assert target["command_zeroed"] is False
+    assert not any(
+        event["event_type"] in {"neck.target", "arm.target"} for event in events
+    )
+    json.dumps(events)
+
+
+def test_simulated_arm_sequence():
+    events = run_simulated_arm_sequence()
+
+    assert [event["event_type"] for event in events] == [
+        "gateway.state",
+        "gateway.state",
+        "arm.target",
+    ]
+    assert all(event["schema_version"] == "0.1" for event in events)
+
+    target = events[2]
+    assert target["kind"] == "JOINT_JOG"
+    assert target["deadman"] is True
+    assert target["command_zeroed"] is False
+    assert target["joint_velocity"] == {"shoulder_pan": 0.5}
+    assert not any(
+        event["event_type"] in {"neck.target", "base.target"} for event in events
+    )
+    json.dumps(events)
+
+
+def test_simulated_drive_to_arm_transition():
+    clock = _SimulationClock()
+    gateway = build_simulated_vr_gateway(clock)
+    gateway.handle(
+        CommandEnvelope(
+            "0.1", CommandName.SESSION_START, "sim-drive",
+            1, 1000, SessionStartPayload("drive"),
+        )
+    )
+    gateway.handle(
+        CommandEnvelope(
+            "0.1", CommandName.HEAD_RECENTER, "sim-drive",
+            2, 1001, PosePayload("quest_local", Quaternion(0, 0, 0, 1)),
+        )
+    )
+    assert gateway.current_mode is ControlMode.DRIVE
+
+    events = gateway.handle(
+        CommandEnvelope(
+            "0.1", CommandName.MODE_SET, "sim-drive",
+            3, 1002, ModeSetPayload("arm"),
+        )
+    )
+    assert gateway.transition is ModeTransition.STOPPING_BASE
+
+    gateway.handle_base_stop_ack(True, False)
+    clock.advance_ms(600)
+    events = gateway.poll()
+
+    assert gateway.current_mode is ControlMode.ARM
+    assert gateway.transition is ModeTransition.NONE
 
 
 def test_vr_gateway_import_roots_are_explicitly_allowed():
