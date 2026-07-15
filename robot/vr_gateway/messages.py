@@ -370,8 +370,10 @@ class ArmTargetEvent:
             raise MessageValidationError("deadman must be a boolean")
         if type(self.command_zeroed) is not bool:
             raise MessageValidationError("command_zeroed must be a boolean")
-        if type(self.joint_velocity) is not dict or not self.joint_velocity:
-            raise MessageValidationError("joint_velocity must be a non-empty dict")
+        if type(self.joint_velocity) is not dict:
+            raise MessageValidationError("joint_velocity must be a dict")
+        if not self.command_zeroed and not self.joint_velocity:
+            raise MessageValidationError("joint_velocity must be a non-empty dict when command_zeroed is False")
         for name, value in self.joint_velocity.items():
             if not -1.0 <= value <= 1.0:
                 raise MessageValidationError(
