@@ -15,8 +15,10 @@ so the DTOs, `WireCodec`, `SessionSequence`, and
 
 The client uses Unity's `System.Net.WebSockets.ClientWebSocket` API. No ROS#,
 Meta XR SDK, or XR Interaction Toolkit dependency is added. The HMD transform
-is assigned in the Inspector; in the Editor, a serialized fallback quaternion
-allows contract tests without a headset.
+is assigned in the Inspector and the scene includes a `MainCamera` pose path.
+On Android the source reads the tracked `InputDevice` at `XRNode.Head` via
+`CommonUsages.deviceRotation`; the serialized fallback is compiled only for
+the Editor and cannot be used by an Android build.
 
 ## Protocol and safety
 
@@ -37,7 +39,10 @@ Pause, loss of focus, disconnect, and destruction stop the pose loop first.
 They then attempt `session.stop` only when the socket is open and the gateway
 has confirmed the session. The receive task is cancelled and the transport is
 disposed regardless of whether that best-effort send succeeds. There is no
-automatic reconnect.
+automatic reconnect. A completed cleanup releases a single-use cleanup gate,
+so a later manual Connect creates a fresh session, transport, and cancellation
+source. A remote WebSocket close is treated as a terminal transport error;
+the receive loop does not call `ReceiveAsync` again after its close frame.
 
 ## Pi5 launch
 
