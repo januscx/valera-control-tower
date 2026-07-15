@@ -41,10 +41,14 @@ def test_simulated_head_sequence_is_repeatable():
 
 
 def test_vr_gateway_import_roots_are_explicitly_allowed():
+    # The wire codec is part of the package and must reach the standard JSON
+    # parser, so ``json`` is allowed. ROS, network, serial, LeRobot, and
+    # hardware roots remain forbidden and are not in this set.
     allowed_import_roots = {
         "__future__",
         "dataclasses",
         "enum",
+        "json",
         "math",
         "robot",
         "time",
