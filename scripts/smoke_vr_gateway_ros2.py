@@ -155,6 +155,9 @@ def isolated(scenario: str, callback) -> None:
         probe = RosProbe()
         try:
             probe.wait_for_topics(time.monotonic() + 5)
+            # Keep a short discovery cushion after both endpoint counts agree;
+            # this avoids publishing during the DDS graph's final handshake.
+            time.sleep(0.2)
             callback(probe)
         finally:
             probe.destroy_node()
