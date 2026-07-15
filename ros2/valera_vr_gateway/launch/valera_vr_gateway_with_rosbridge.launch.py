@@ -6,8 +6,10 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
-TOPICS_GLOB = "[/valera/vr_gateway/command,/valera/vr_gateway/event]"
-EMPTY_GLOB = "[]"
+# rosbridge_server declares these parameters as scalar strings. The embedded
+# quotes keep ROS 2 launch from converting the glob lists into STRING_ARRAY.
+TOPICS_GLOB = "'[/valera/vr_gateway/command,/valera/vr_gateway/event]'"
+EMPTY_GLOB = "'[]'"
 
 
 def generate_launch_description() -> LaunchDescription:
