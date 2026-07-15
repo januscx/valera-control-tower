@@ -1,7 +1,9 @@
 """ROS 2 node that bridges the VR gateway JSON contract to ROS topics.
 
 subscribing topic:  /valera/vr_gateway/command  (std_msgs/msg/String)
-publishing topic:   /valera/vr_gateway/event    (std_msgs/msg/String)
+publishing topics:  /valera/vr_gateway/event    (std_msgs/msg/String)
+                    /cmd_vel                    (geometry_msgs/Twist)
+                    /valera/arm/command         (std_msgs/msg/String)
 
 The node owns no safety decisions. The payload of every command message is a
 raw JSON string conforming to the v0.1 contract; it is decoded by
@@ -10,6 +12,10 @@ raw JSON string conforming to the v0.1 contract; it is decoded by
 published as its own ``String`` message in the original gateway order. A
 configurable poll timer (default 20 ms) drives ``VrGateway.poll`` so handshake
 and motion-watchdog deadlines fire without incoming traffic.
+
+``base.target`` events are converted to ``geometry_msgs/Twist`` and published
+on ``/cmd_vel``. ``arm.target`` events are published as raw JSON strings on
+``/valera/arm/command``. All other events go through ``/valera/vr_gateway/event``.
 
 The node uses the *simulation* neck configuration only. It never opens real
 neck servos, the tracked base, or the SO-101 arm. A guarded hardware slice must
@@ -31,6 +37,7 @@ from __future__ import annotations
 import time
 
 import rclpy
+from geometry_msgs.msg import Twist, Vector3
 from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -40,7 +47,11 @@ from robot.vr_gateway_ros.handlers import VrGatewayBridge
 
 DEFAULT_COMMAND_TOPIC = "/valera/vr_gateway/command"
 DEFAULT_EVENT_TOPIC = "/valera/vr_gateway/event"
+DEFAULT_CMD_VEL_TOPIC = "/cmd_vel"
+DEFAULT_ARM_COMMAND_TOPIC = "/valera/arm/command"
 DEFAULT_POLL_PERIOD_MS = 20
+DEFAULT_MAX_LINEAR_SPEED = 0.5
+DEFAULT_MAX_ANGULAR_SPEED = 0.8
 MAX_POLL_PERIOD_MS = 60_000
 
 
@@ -66,7 +77,11 @@ class VrGatewayNode(Node):
 
         self.declare_parameter("command_topic", DEFAULT_COMMAND_TOPIC)
         self.declare_parameter("event_topic", DEFAULT_EVENT_TOPIC)
+        self.declare_parameter("cmd_vel_topic", DEFAULT_CMD_VEL_TOPIC)
+        self.declare_parameter("arm_command_topic", DEFAULT_ARM_COMMAND_TOPIC)
         self.declare_parameter("poll_period_ms", DEFAULT_POLL_PERIOD_MS)
+        self.declare_parameter("max_linear_speed", DEFAULT_MAX_LINEAR_SPEED)
+        self.declare_parameter("max_angular_speed", DEFAULT_MAX_ANGULAR_SPEED)
 
         command_topic = _validate_topic(
             self.get_parameter("command_topic").value, "command_topic"
@@ -74,9 +89,17 @@ class VrGatewayNode(Node):
         event_topic = _validate_topic(
             self.get_parameter("event_topic").value, "event_topic"
         )
+        cmd_vel_topic = _validate_topic(
+            self.get_parameter("cmd_vel_topic").value, "cmd_vel_topic"
+        )
+        arm_command_topic = _validate_topic(
+            self.get_parameter("arm_command_topic").value, "arm_command_topic"
+        )
         poll_period_ms = _validate_poll_period_ms(
             self.get_parameter("poll_period_ms").value
         )
+        max_linear_speed = self.get_parameter("max_linear_speed").value
+        max_angular_speed = self.get_parameter("max_angular_speed").value
 
         self._gateway = build_simulated_vr_gateway(time.monotonic_ns)
 
@@ -86,7 +109,22 @@ class VrGatewayNode(Node):
         self._steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
 
         self._publisher = self.create_publisher(String, event_topic, 10)
-        self._bridge = VrGatewayBridge(self._gateway, self._publish_event)
+        self._cmd_vel_pub = self.create_publisher(Twist, cmd_vel_topic, 10)
+        self._arm_command_pub = self.create_publisher(String, arm_command_topic, 10)
+
+        self._bridge = VrGatewayBridge(
+            self._gateway,
+            self._publish_event,
+            lambda msg: self._cmd_vel_pub.publish(
+                Twist(
+                    linear=Vector3(x=msg.linear.x),
+                    angular=Vector3(z=msg.angular.z),
+                )
+            ),
+            lambda s: self._arm_command_pub.publish(String(data=s)),
+            max_linear_speed=max_linear_speed,
+            max_angular_speed=max_angular_speed,
+        )
 
         self.create_subscription(String, command_topic, self._on_command, 10)
         self.create_timer(
@@ -97,8 +135,10 @@ class VrGatewayNode(Node):
 
         message = (
             f"valera_vr_gateway ready: command={command_topic} "
-            f"event={event_topic} poll={poll_period_ms}ms (sim neck, "
-            "monotonic watchdog clock, steady poll timer)"
+            f"event={event_topic} poll={poll_period_ms}ms "
+            f"cmd_vel={cmd_vel_topic} arm={arm_command_topic} "
+            f"max_lin={max_linear_speed} max_ang={max_angular_speed} "
+            "(sim neck, monotonic watchdog clock, steady poll timer)"
         )
         self.get_logger().info(message)
 
