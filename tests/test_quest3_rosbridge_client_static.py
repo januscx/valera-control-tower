@@ -101,6 +101,32 @@ def test_receive_events_are_dispatched_back_to_unity_main_thread():
     assert "QueueMainThread" in source
 
 
+def test_android_pose_path_uses_real_xr_head_device_and_never_editor_fallback():
+    source = (RUNTIME / "QuestHeadPoseSource.cs").read_text()
+    scene = (PROJECT / "Assets" / "Scenes" / "QuestHeadClient.unity").read_text()
+    assert "InputDevices.GetDeviceAtXRNode" in source
+    assert "XRNode.Head" in source
+    assert "CommonUsages.deviceRotation" in source
+    assert "#if !UNITY_EDITOR" in source
+    assert "MainCamera" in scene
+
+
+def test_lifecycle_has_reconnect_close_and_single_cleanup_guards():
+    source = (RUNTIME / "QuestHeadClientBehaviour.cs").read_text()
+    assert "new ClientWebSocketQuestTransport()" in source
+    assert "new CancellationTokenSource()" in source
+    assert "cleanupGate.TryClaim()" in source
+    assert "cleanupGate.Release()" in source
+    assert "connecting" in source
+    assert "stopping = false" in source
+    assert "Remote WebSocket close frame received" in source
+    assert "if (envelope == null)" in source
+    assert "SendCommandSafely" in source
+    assert "catch (Exception exception)" in source
+    assert "transport?.Dispose()" in source
+    assert "session.Close()" in source
+
+
 def test_pi5_rosbridge_launch_keeps_explicit_lan_opt_in_and_exact_allowlist():
     source = LAUNCH.read_text()
     assert 'DeclareLaunchArgument("rosbridge_address", default_value="127.0.0.1")' in source

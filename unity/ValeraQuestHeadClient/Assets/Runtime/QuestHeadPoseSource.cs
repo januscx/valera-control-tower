@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.XR;
 using Valera.VrGateway.Contracts;
 using Valera.VrGateway.OpenXr;
 
@@ -12,6 +13,13 @@ namespace Valera.QuestHeadClient
 
         public bool TryGetUnityOrientation(out Quaternion orientation)
         {
+#if !UNITY_EDITOR
+            InputDevice headDevice = InputDevices.GetDeviceAtXRNode(XRNode.Head);
+            if (headDevice.isValid && headDevice.TryGetFeatureValue(CommonUsages.deviceRotation, out orientation))
+            {
+                return true;
+            }
+#endif
             if (hmdTransform == null && Camera.main != null) hmdTransform = Camera.main.transform;
             if (hmdTransform != null)
             {
