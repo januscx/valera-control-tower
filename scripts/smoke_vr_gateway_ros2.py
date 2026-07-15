@@ -128,6 +128,7 @@ class RosProbe(Node):
                 {COMMAND_TOPIC, EVENT_TOPIC}.issubset(names)
                 and self.publisher.get_subscription_count() > 0
                 and self.count_publishers(EVENT_TOPIC) > 0
+                and self.count_subscribers(EVENT_TOPIC) > 0
             ):
                 return
             rclpy.spin_once(self, timeout_sec=0.1)
