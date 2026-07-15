@@ -117,4 +117,3 @@
 - Packaging, launch interface inspection, smoke scenarios, WebSocket boundary, Pi5 attempt, tests, documentation, and draft PR are each covered.
 - No task modifies gateway safety policy or hardware adapters.
 - Runtime claims are conditional on observed command output.
-

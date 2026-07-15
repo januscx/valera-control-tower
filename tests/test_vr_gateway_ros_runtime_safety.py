@@ -50,4 +50,3 @@ def test_smoke_scenarios_name_required_ordered_events_and_safety_states():
         "ESTOP_LATCHED",
     ):
         assert text in source
-
