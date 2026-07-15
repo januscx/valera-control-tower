@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Text;
 
 namespace Valera.QuestHeadClient.Transport
 {
@@ -33,14 +35,33 @@ namespace Valera.QuestHeadClient.Transport
         public bool deadman;
     }
 
-    [Serializable]
     public sealed class ArmJogPayload
     {
         public string kind;
         public bool deadman;
-        // JsonUtility does not support Dictionary<K,V>.
-        // Serialize as JSON string with a helper: joint_velocity = Json.Serialize(dict)
-        public string joint_velocity;
+        public Dictionary<string, float> jointVelocity = new Dictionary<string, float>();
+
+        public string ToJson()
+        {
+            var sb = new StringBuilder();
+            sb.Append("{\"kind\":\"");
+            sb.Append(kind);
+            sb.Append("\",\"deadman\":");
+            sb.Append(deadman ? "true" : "false");
+            sb.Append(",\"joint_velocity\":{");
+            bool first = true;
+            foreach (var kv in jointVelocity)
+            {
+                if (!first) sb.Append(",");
+                first = false;
+                sb.Append('"');
+                sb.Append(kv.Key);
+                sb.Append("\":");
+                sb.Append(kv.Value.ToString("0.0########", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            sb.Append("}}");
+            return sb.ToString();
+        }
     }
 
     [Serializable]
