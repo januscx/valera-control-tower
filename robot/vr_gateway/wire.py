@@ -656,7 +656,10 @@ def _encode_arm_target_event(event: ArmTargetEvent) -> dict[str, object]:
         raise WireError("deadman must be a boolean")
     if type(event.command_zeroed) is not bool:
         raise WireError("command_zeroed must be a boolean")
-    if type(event.joint_velocity) is not dict or not event.joint_velocity:
+    if event.command_zeroed:
+        if type(event.joint_velocity) is not dict:
+            raise WireError("joint_velocity must be a dict")
+    elif type(event.joint_velocity) is not dict or not event.joint_velocity:
         raise WireError("joint_velocity must be a non-empty dict")
     return {
         "schema_version": "0.1",

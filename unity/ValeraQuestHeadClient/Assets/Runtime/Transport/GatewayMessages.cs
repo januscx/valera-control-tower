@@ -38,6 +38,8 @@ namespace Valera.QuestHeadClient.Transport
     {
         public string kind;
         public bool deadman;
+        // JsonUtility does not support Dictionary<K,V>.
+        // Serialize as JSON string with a helper: joint_velocity = Json.Serialize(dict)
         public string joint_velocity;
     }
 

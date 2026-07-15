@@ -309,7 +309,7 @@ def test_missing_and_mismatched_sessions_have_distinct_rejections():
     assert mismatch.code is RejectionCode.SESSION_MISMATCH
 
 
-def test_equal_timestamp_with_higher_sequence_is_accepted_without_state_event():
+def test_equal_timestamp_with_higher_sequence_is_accepted_with_state_event():
     gateway, _ = make_gateway()
     start(gateway)
 
@@ -322,7 +322,9 @@ def test_equal_timestamp_with_higher_sequence_is_accepted_without_state_event():
         )
     )
 
-    assert events == ()
+    assert len(events) == 1
+    assert isinstance(events[0], GatewayStateEvent)
+    assert events[0].current_mode is ControlMode.HEAD_ONLY
 
 
 def test_ordering_rejects_timestamp_regression_and_nonincreasing_sequence():
@@ -1105,6 +1107,26 @@ def test_mode_set_head_to_arm_immediate():
     assert gateway.current_mode is ControlMode.ARM
     assert gateway.transition is ModeTransition.NONE
     assert events == ()
+
+
+def test_mode_set_drive_to_head_emits_gateway_state_event():
+    gateway, clock = make_gateway()
+    start(gateway)
+    recenter(gateway)
+    gateway.handle(command(
+        CommandName.MODE_SET, ModeSetPayload("drive"),
+        sequence=5, timestamp_ms=10,
+    ))
+    assert gateway.current_mode is ControlMode.DRIVE
+    events = gateway.handle(command(
+        CommandName.MODE_SET, ModeSetPayload("head"),
+        sequence=6, timestamp_ms=11,
+    ))
+    assert gateway.current_mode is ControlMode.HEAD_ONLY
+    assert len(events) == 1
+    assert isinstance(events[0], GatewayStateEvent)
+    assert events[0].current_mode is ControlMode.HEAD_ONLY
+    assert events[0].state is GatewayState.ACTIVE
 
 
 def test_base_drive_rejected_in_arm():

@@ -1279,6 +1279,15 @@ def test_encode_arm_target_event():
     assert doc["joint_velocity"] == {"shoulder_pan": 0.3}
 
 
+def test_encode_arm_target_event_with_command_zeroed_allows_empty_dict():
+    event = ArmTargetEvent(1000, "JOINT_JOG", False, True, {})
+    encoded = wire.encode_event(event)
+    doc = json.loads(encoded)
+    assert doc["event_type"] == "arm.target"
+    assert doc["command_zeroed"] is True
+    assert doc["joint_velocity"] == {}
+
+
 def test_encode_base_stop_ack_event():
     event = BaseStopAckEvent(1000, True, False)
     encoded = wire.encode_event(event)

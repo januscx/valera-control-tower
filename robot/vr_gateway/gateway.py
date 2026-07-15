@@ -333,7 +333,7 @@ class VrGateway:
         self._stop_ack_pending = False
         self._stop_ack_deadline_ns = None
         self._accept(command, now_ns)
-        return ()
+        return (GatewayStateEvent(now_ns, self.state, self.current_mode, command.session_id, command.sequence),)
 
     def _handle_mode_set_drive(
         self, command: CommandEnvelope, now_ns: int

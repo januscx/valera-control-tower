@@ -233,7 +233,7 @@ def test_bridge_publishes_each_event_as_a_separate_message_in_order():
     assert len(publisher.published) == 2
 
 
-def test_bridge_publishes_nothing_when_command_leaves_state_unchanged():
+def test_bridge_publishes_state_event_on_mode_set_head():
     bridge, gateway, _, publisher = _bridge()
     bridge.handle_command(SESSION_START_JSON)
     publisher.published.clear()
@@ -251,7 +251,10 @@ def test_bridge_publishes_nothing_when_command_leaves_state_unchanged():
         )
     )
 
-    assert publisher.published == []
+    assert len(publisher.published) == 1
+    doc = json.loads(publisher.published[0])
+    assert doc["event_type"] == EventName.GATEWAY_STATE.value
+    assert doc["current_mode"] == "HEAD_ONLY"
 
 
 def test_bridge_malformed_command_routes_through_gateway_fail_closed():

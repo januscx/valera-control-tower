@@ -8,6 +8,7 @@ using UnityEngine;
 using Valera.VrGateway.Contracts;
 using Valera.VrGateway.Json;
 using Valera.QuestHeadClient.Session;
+using Valera.QuestHeadClient.State;
 using Valera.QuestHeadClient.Transport;
 
 namespace Valera.QuestHeadClient
@@ -18,6 +19,7 @@ namespace Valera.QuestHeadClient
         [SerializeField] private int pi5Port = 9091;
         [SerializeField] private QuestHeadPoseSource poseSource;
         [SerializeField] private QuestHeadDebugPanel debugPanel;
+        [SerializeField] private GatewayStateStore _stateStore;
 
         private readonly ConcurrentQueue<Action> mainThreadActions = new ConcurrentQueue<Action>();
         private QuestHeadSession session;
@@ -117,6 +119,14 @@ namespace Valera.QuestHeadClient
             {
                 bool accepted = session.HandleEvent(inner);
                 object decoded = WireCodec.DecodeEvent(inner);
+
+                if (_stateStore != null)
+                {
+                    var envelope = JsonUtility.FromJson<EventEnvelopeDto>(inner);
+                    if (envelope != null)
+                        _stateStore.UpdateFromEvent(envelope.event_type, inner);
+                }
+
                 if (decoded is NeckTargetEventDto target)
                 {
                     debugPanel?.SetNeckTarget(target.pan_degrees, target.tilt_degrees, target.correlation.Sequence);
@@ -204,5 +214,11 @@ namespace Valera.QuestHeadClient
         private void OnApplicationPause(bool pause) { if (pause) Disconnect(); }
         private void OnApplicationFocus(bool focus) { if (!focus) Disconnect(); }
         private void OnDestroy() { destroyed = true; BeginCleanup(true, null); }
+
+        [Serializable]
+        private sealed class EventEnvelopeDto
+        {
+            public string event_type;
+        }
     }
 }
