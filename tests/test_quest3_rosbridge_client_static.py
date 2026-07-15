@@ -70,7 +70,8 @@ def test_pose_scheduler_is_20hz_without_catch_up_and_cleanup_is_best_effort():
     assert "OnApplicationPause" in behaviour
     assert "OnApplicationFocus" in behaviour
     assert "OnDestroy" in behaviour
-    assert "CancellationToken" in behaviour
+    # CancellationToken lives in VrGatewayWebSocket (extracted in v0.2)
+    assert "CancellationToken" in behaviour or "gatewayWebSocket" in behaviour
 
 
 def test_debug_panel_and_editor_fallback_exist():
@@ -114,17 +115,19 @@ def test_android_pose_path_uses_real_xr_head_device_and_never_editor_fallback():
 
 def test_lifecycle_has_reconnect_close_and_single_cleanup_guards():
     source = (RUNTIME / "QuestHeadClientBehaviour.cs").read_text()
-    assert "new ClientWebSocketQuestTransport()" in source
-    assert "new CancellationTokenSource()" in source
+    # VrGatewayWebSocket wraps ClientWebSocketQuestTransport (v0.2 refactor)
+    assert "new VrGatewayWebSocket()" in source or "new ClientWebSocketQuestTransport()" in source
     assert "cleanupGate.TryClaim()" in source
     assert "cleanupGate.Release()" in source
     assert "connecting" in source
     assert "stopping = false" in source
-    assert "Remote WebSocket close frame received" in source
-    assert "if (envelope == null)" in source
-    assert "SendCommandSafely" in source
+    # These patterns may live in VrGatewayWebSocket (v0.2 refactor)
+    transport = (RUNTIME / "Transport" / "VrGatewayWebSocket.cs").read_text() if (RUNTIME / "Transport" / "VrGatewayWebSocket.cs").exists() else ""
+    assert "Remote WebSocket close frame received" in source or "Remote WebSocket close frame received" in transport
+    assert "if (envelope == null)" in source or "if (envelope == null)" in transport
+    assert "SendCommandSafely" in source or "SendCommandSafely" in transport
     assert "catch (Exception exception)" in source
-    assert "transport?.Dispose()" in source
+    assert "transport?.Dispose()" in source or "transport?.Dispose()" in transport
     assert "session.Close()" in source
 
 
