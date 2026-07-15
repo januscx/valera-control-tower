@@ -38,15 +38,22 @@ from math import isfinite
 from typing import Any
 
 from robot.vr_gateway.messages import (
+    ArmJogPayload,
+    ArmTargetEvent,
+    BaseDrivePayload,
+    BaseStopAckEvent,
+    BaseTargetEvent,
     CommandEnvelope,
     CommandName,
     CommandRejectedEvent,
+    ControlMode,
     EmptyPayload,
     EventName,
     GatewayState,
     GatewayStateEvent,
     MessageValidationError,
     ModeSetPayload,
+    ModeTransition,
     NeckTargetEvent,
     OutputEvent,
     PosePayload,
@@ -88,6 +95,9 @@ _EVENT_BY_NAME: dict[str, type] = {
     EventName.NECK_TARGET.value: NeckTargetEvent,
     EventName.SAFETY_STOP.value: SafetyStopEvent,
     EventName.COMMAND_REJECTED.value: CommandRejectedEvent,
+    EventName.BASE_TARGET.value: BaseTargetEvent,
+    EventName.ARM_TARGET.value: ArmTargetEvent,
+    EventName.BASE_STOP_ACK.value: BaseStopAckEvent,
 }
 
 _ENVELOPE_KEYS = frozenset(
@@ -106,6 +116,9 @@ _QUATERNION_KEYS = frozenset({"x", "y", "z", "w"})
 _POSITION_KEYS = frozenset({"x", "y", "z"})
 _SESSION_START_KEYS = frozenset({"requested_mode"})
 _MODE_SET_KEYS = frozenset({"mode"})
+_BASE_DRIVE_KEYS = frozenset({"throttle", "steering", "deadman"})
+_ARM_JOG_KEYS = frozenset({"kind", "deadman", "joint_velocity"})
+_ESTOP_RESET_KEYS = frozenset()
 
 
 def decode_command(raw: str) -> CommandEnvelope:
@@ -196,6 +209,12 @@ def _decode_payload(command: CommandName, payload: object) -> Any:
         return _decode_head_pose(payload)
     if command is CommandName.HEAD_RECENTER:
         return _decode_head_recenter(payload)
+    if command is CommandName.BASE_DRIVE:
+        return _decode_base_drive(payload)
+    if command is CommandName.ARM_JOG:
+        return _decode_arm_jog(payload)
+    if command is CommandName.EMERGENCY_STOP_RESET:
+        return _decode_empty_payload(payload)
     raise WireError("unknown command discriminator")
 
 
@@ -203,8 +222,8 @@ def _decode_session_start(payload: dict[str, object]) -> SessionStartPayload:
     if set(payload.keys()) != _SESSION_START_KEYS:
         raise WireError("session.start payload must have requested_mode only")
     requested_mode = payload["requested_mode"]
-    if type(requested_mode) is not str or requested_mode != "head":
-        raise WireError("session.start requested_mode must be exactly \"head\"")
+    if type(requested_mode) is not str or requested_mode not in ("head", "drive", "arm"):
+        raise WireError("session.start requested_mode must be \"head\", \"drive\", or \"arm\"")
     try:
         return SessionStartPayload(requested_mode)
     except MessageValidationError as exc:
@@ -267,6 +286,49 @@ def _decode_head_recenter(payload: dict[str, object]) -> PosePayload:
         return PosePayload(frame, orientation, None)
     except MessageValidationError as exc:
         raise WireError(str(exc)) from exc
+
+
+def _decode_base_drive(payload: dict[str, object]) -> BaseDrivePayload:
+    if type(payload) is not dict:
+        raise WireError("payload must be a JSON object")
+    keys = set(payload.keys())
+    if keys != _BASE_DRIVE_KEYS:
+        raise WireError("base.drive payload must have throttle, steering, deadman")
+    throttle = payload["throttle"]
+    if type(throttle) is bool or type(throttle) not in (int, float) or not isfinite(throttle):
+        raise WireError("throttle must be a finite number")
+    steering = payload["steering"]
+    if type(steering) is bool or type(steering) not in (int, float) or not isfinite(steering):
+        raise WireError("steering must be a finite number")
+    deadman = payload["deadman"]
+    if type(deadman) is not bool:
+        raise WireError("deadman must be a boolean")
+    return BaseDrivePayload(float(throttle), float(steering), deadman)
+
+
+def _decode_arm_jog(payload: dict[str, object]) -> ArmJogPayload:
+    if type(payload) is not dict:
+        raise WireError("payload must be a JSON object")
+    keys = set(payload.keys())
+    if keys != _ARM_JOG_KEYS:
+        raise WireError("arm.jog payload must have kind, deadman, joint_velocity")
+    kind = payload["kind"]
+    if type(kind) is not str or kind != "JOINT_JOG":
+        raise WireError("kind must be JOINT_JOG")
+    deadman = payload["deadman"]
+    if type(deadman) is not bool:
+        raise WireError("deadman must be a boolean")
+    joint_velocity = payload["joint_velocity"]
+    if type(joint_velocity) is not dict or not joint_velocity:
+        raise WireError("joint_velocity must be a non-empty object")
+    for name, value in joint_velocity.items():
+        if type(name) is not str:
+            raise WireError("joint names must be strings")
+        if type(value) is bool or type(value) not in (int, float) or not isfinite(value):
+            raise WireError(f"joint {name} velocity must be a finite number")
+        if not -1.0 <= value <= 1.0:
+            raise WireError(f"joint {name} velocity must be in [-1.0, 1.0]")
+    return ArmJogPayload(kind, deadman, dict(joint_velocity))
 
 
 def _decode_quaternion(value: object) -> Quaternion:
@@ -453,6 +515,12 @@ def _event_to_validated_dict(event: OutputEvent) -> dict[str, object]:
         return _encode_safety_stop_event(event)
     if type(event) is CommandRejectedEvent:
         return _encode_command_rejected_event(event)
+    if type(event) is BaseTargetEvent:
+        return _encode_base_target_event(event)
+    if type(event) is ArmTargetEvent:
+        return _encode_arm_target_event(event)
+    if type(event) is BaseStopAckEvent:
+        return _encode_base_stop_ack_event(event)
     raise WireError("event must be one of the approved event DTO types")
 
 
@@ -464,6 +532,12 @@ def _encode_gateway_state_event(event: GatewayStateEvent) -> dict[str, object]:
         raise WireError("event_type must be gateway.state")
     if type(event.state) is not GatewayState:
         raise WireError("state must be a GatewayState enum")
+    if type(event.current_mode) is not ControlMode:
+        raise WireError("current_mode must be a ControlMode enum")
+    if event.requested_mode is not None and type(event.requested_mode) is not ControlMode:
+        raise WireError("requested_mode must be a ControlMode enum or None")
+    if type(event.transition) is not ModeTransition:
+        raise WireError("transition must be a ModeTransition enum")
     _validate_correlation(event.session_id, event.sequence, required=False)
     return {
         "schema_version": "0.1",
@@ -472,6 +546,9 @@ def _encode_gateway_state_event(event: GatewayStateEvent) -> dict[str, object]:
         "state": event.state.value,
         "session_id": event.session_id,
         "sequence": event.sequence,
+        "current_mode": event.current_mode.value,
+        "requested_mode": event.requested_mode.value if event.requested_mode is not None else None,
+        "transition": event.transition.value,
     }
 
 
@@ -545,6 +622,64 @@ def _encode_command_rejected_event(event: CommandRejectedEvent) -> dict[str, obj
         "message": event.message,
         "session_id": event.session_id,
         "sequence": event.sequence,
+    }
+
+
+def _encode_base_target_event(event: BaseTargetEvent) -> dict[str, object]:
+    _validate_int_field(event.gateway_monotonic_ns, "gateway_monotonic_ns", minimum=0)
+    for name in ("throttle", "steering"):
+        value = getattr(event, name)
+        if type(value) is bool or type(value) not in (int, float) or not isfinite(value):
+            raise WireError(f"{name} must be a finite number")
+        if not -1.0 <= value <= 1.0:
+            raise WireError(f"{name} must be in [-1.0, 1.0]")
+    if type(event.deadman) is not bool:
+        raise WireError("deadman must be a boolean")
+    if type(event.command_zeroed) is not bool:
+        raise WireError("command_zeroed must be a boolean")
+    return {
+        "schema_version": "0.1",
+        "event_type": EventName.BASE_TARGET.value,
+        "gateway_monotonic_ns": event.gateway_monotonic_ns,
+        "throttle": event.throttle,
+        "steering": event.steering,
+        "deadman": event.deadman,
+        "command_zeroed": event.command_zeroed,
+    }
+
+
+def _encode_arm_target_event(event: ArmTargetEvent) -> dict[str, object]:
+    _validate_int_field(event.gateway_monotonic_ns, "gateway_monotonic_ns", minimum=0)
+    if event.kind != "JOINT_JOG":
+        raise WireError("kind must be JOINT_JOG")
+    if type(event.deadman) is not bool:
+        raise WireError("deadman must be a boolean")
+    if type(event.command_zeroed) is not bool:
+        raise WireError("command_zeroed must be a boolean")
+    if type(event.joint_velocity) is not dict or not event.joint_velocity:
+        raise WireError("joint_velocity must be a non-empty dict")
+    return {
+        "schema_version": "0.1",
+        "event_type": EventName.ARM_TARGET.value,
+        "gateway_monotonic_ns": event.gateway_monotonic_ns,
+        "kind": event.kind,
+        "deadman": event.deadman,
+        "joint_velocity": event.joint_velocity,
+        "command_zeroed": event.command_zeroed,
+    }
+
+
+def _encode_base_stop_ack_event(event: BaseStopAckEvent) -> dict[str, object]:
+    _validate_int_field(event.gateway_monotonic_ns, "gateway_monotonic_ns", minimum=0)
+    for name in ("command_zeroed", "stationary_verified"):
+        if type(getattr(event, name)) is not bool:
+            raise WireError(f"{name} must be a boolean")
+    return {
+        "schema_version": "0.1",
+        "event_type": EventName.BASE_STOP_ACK.value,
+        "gateway_monotonic_ns": event.gateway_monotonic_ns,
+        "command_zeroed": event.command_zeroed,
+        "stationary_verified": event.stationary_verified,
     }
 
 
