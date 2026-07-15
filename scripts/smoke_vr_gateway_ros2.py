@@ -275,9 +275,10 @@ def websocket_smoke(timeout: float, smoke_port: int) -> int:
             raise RuntimeError(
                 f"rosbridge WebSocket did not open on loopback:{smoke_port}"
             )
-        with websocket.create_connection(
+        client = websocket.create_connection(
             f"ws://127.0.0.1:{smoke_port}", timeout=timeout
-        ) as client:
+        )
+        try:
             client.send(json.dumps({"op": "subscribe", "topic": EVENT_TOPIC}))
             client.send(
                 json.dumps(
@@ -296,7 +297,9 @@ def websocket_smoke(timeout: float, smoke_port: int) -> int:
                     assert event["state"] == "AWAITING_RECENTER"
                     print("rosbridge WebSocket loopback smoke: PASS")
                     return 0
-        raise RuntimeError("rosbridge did not return the expected event")
+            raise RuntimeError("rosbridge did not return the expected event")
+        finally:
+            client.close()
     finally:
         if process.poll() is None:
             os.killpg(os.getpgid(process.pid), signal.SIGTERM)

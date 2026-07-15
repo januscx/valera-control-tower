@@ -27,7 +27,7 @@ source /opt/ros/jazzy/setup.bash
 export ROS_DOMAIN_ID=91
 rm -rf /tmp/valera_vr_gateway_smoke_ws
 mkdir -p /tmp/valera_vr_gateway_smoke_ws/src
-git clone --branch codex/vr-gateway-ros2-runtime-smoke-v0-1 \
+git clone --branch main \
   --single-branch https://github.com/januscx/valera-control-tower.git \
   /tmp/valera_vr_gateway_smoke_ws/src/valera-control-tower
 cd /tmp/valera_vr_gateway_smoke_ws
@@ -100,6 +100,18 @@ python3 -u scripts/smoke_vr_gateway_ros2.py \
   --mode rosbridge --ros-domain-id 91 --smoke-port 9091
 ```
 
+On Pi5, use an isolated venv with ROS's system Python dependencies visible and
+install only the test client into that venv:
+
+```bash
+python3 -m venv --system-site-packages /tmp/valera-ws-smoke-venv
+/tmp/valera-ws-smoke-venv/bin/pip install websocket-client
+/tmp/valera-ws-smoke-venv/bin/python \
+  scripts/smoke_vr_gateway_ros2.py \
+  --mode rosbridge --ros-domain-id 91 --smoke-port 9091
+rm -rf /tmp/valera-ws-smoke-venv
+```
+
 The WebSocket wire shape is the ROS `std_msgs/msg/String` shape: publish with
 `"msg": {"data": "<JSON command string>"}` and decode received events from
 `document["msg"]["data"]`.
@@ -139,9 +151,19 @@ not add WebSocket code to the production node:
 python3 scripts/smoke_vr_gateway_ros2.py --mode rosbridge
 ```
 
-Pi5 result: **pending**. `websocket`, `websockets`, and `roslibpy` were not
-installed, so no WebSocket success is claimed and no dependency was installed
-into the system or live workspace.
+Pi5 result: **PASS**. `websocket`, `websockets`, and `roslibpy` were not
+installed in the initial environment, so `websocket-client` was installed only
+in `/tmp/valera-ws-smoke-venv`; the venv was removed afterward. No system
+package or live workspace was modified.
+
+## Symlink-install limitation
+
+Use the regular `colcon build --packages-select valera_vr_gateway` command
+shown above. `colcon build --symlink-install` is not supported by this wrapper:
+the package intentionally installs the existing repository-root `robot` module
+tree without copying it, and colcon's Python symlink installer treats that
+root-level package directory as an existing symlink destination. This is a
+known packaging limitation, not a runtime requirement.
 
 ## Cleanup
 
