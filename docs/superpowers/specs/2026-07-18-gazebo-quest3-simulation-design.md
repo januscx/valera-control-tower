@@ -92,6 +92,18 @@ deactivation; the launch profile also invokes this stop/deactivation path on an
 unexpected arm-bridge process exit. The controller must be configured and
 tested so deactivation does not retain a non-zero velocity command.
 
+`sim_base_bridge` has the equivalent independent steady-time receive lease for
+`/valera/internal/base_target`. It renews the lease only after a valid encoded
+base target has been accepted. On expiry it immediately publishes a zero
+`TwistStamped` to the base controller, independent of ROS or simulation time;
+zero commands must never be blocked by unavailable `/clock`. A stop message
+uses the most recent simulation stamp when available, otherwise a zero header
+stamp; it never waits for a new `/clock` tick. The base bridge emits a monotonic
+heartbeat to `sim_actuator_supervisor`. On missing heartbeat or an unexpected
+base-bridge process exit, the supervisor publishes a zero base command and
+deactivates `diff_drive_controller`. The controller's own
+`cmd_vel_timeout` remains a second layer only, never the primary receive lease.
+
 ## Package and file boundaries
 
 `trackbot_description` remains the source for robot geometry, link names,
@@ -143,6 +155,7 @@ avoid topic ambiguity.
 | Gazebo sensor bridge | `/valera/sim/camera/*`, `/valera/sim/imu` | ROS sensor messages | simulation vision/evidence adapter | Published with simulation-time headers. |
 | gateway | `/valera/vr_gateway/event` | `std_msgs/msg/String` | Quest via rosbridge | Existing event contract only. |
 | arm velocity bridge | `/valera/internal/arm_bridge_heartbeat` | `std_msgs/msg/UInt64` | `sim_actuator_supervisor` | Monotonic sequence/heartbeat; loss triggers zero command and controller deactivation. Never exposed through rosbridge. |
+| base bridge | `/valera/internal/base_bridge_heartbeat` | `std_msgs/msg/UInt64` | `sim_actuator_supervisor` | Monotonic sequence/heartbeat; loss triggers zero base command and `diff_drive_controller` deactivation. Never exposed through rosbridge. |
 
 The `diff_drive_controller` command topic is deliberately stamped: Jazzy
 requires `geometry_msgs/msg/TwistStamped` on `~/cmd_vel`. Its built-in timeout
@@ -304,7 +317,8 @@ works.
 - Description validation confirms the controlled joint allow-lists, mimic
   relationship, and wheel group names against `trackbot_description`.
 - Base bridge tests cover malformed/non-finite input, zero command propagation,
-  stamped output, stop-token preservation, and no command after a rejected
+  stamped output, stop-token preservation, steady-time lease expiry with a
+  zero output despite paused simulation time, and no command after a rejected
   message.
 - Arm velocity bridge tests cover JSON validation, fixed joint ordering,
   revolute/prismatic scaling, all-zero stop commands, position-limit guards,
@@ -328,8 +342,10 @@ works.
   deadman release, watchdog, E-stop and `session.stop` produce all-zero arm
   controller output; no independent `left_clamp` command exists.
 - Killing the gateway renews neither base nor arm leases; the arm bridge emits
-  zero on lease expiry. Killing the arm bridge causes the external supervisor
-  to emit zero and deactivate the arm velocity controller.
+  zero on its steady-time lease expiry and the base bridge emits zero on its
+  independent steady-time receive-lease expiry. Killing either bridge causes
+  the external supervisor to emit the corresponding zero command and deactivate
+  its controller.
 - Camera and IMU messages arrive through the sensor bridge with simulation-time
   headers; camera data can produce a Control Tower simulation evidence event.
 - The full local scenario records a deterministic mission result without Quest,
@@ -344,6 +360,16 @@ works.
    command state while simulation time is frozen.
 5. Resume Gazebo and verify the robot does not move again.
 6. Verify movement requires a fresh valid Quest command.
+
+### Mandatory paused base-lease test
+
+1. Send a valid non-zero base command and verify controller output.
+2. Pause Gazebo.
+3. Terminate the gateway process while `sim_base_bridge` remains running.
+4. Wait past the base bridge's steady-time receive lease.
+5. Verify a zero `TwistStamped` was emitted while `/clock` was paused.
+6. Resume Gazebo and verify the base makes no residual movement.
+7. Verify movement requires a new valid base target after the gateway restarts.
 
 ### Quest acceptance run
 
