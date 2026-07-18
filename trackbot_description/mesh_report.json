@@ -1,0 +1,205 @@
+{
+  "base": {
+    "source": "base_global.stl",
+    "origin_in_base_m": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "original_faces": 408250,
+    "output_faces": 408250,
+    "vertices": 199198,
+    "bounds_m": [
+      [
+        -0.249984,
+        -0.2025,
+        -0.065
+      ],
+      [
+        0.24998,
+        0.2025,
+        0.191
+      ]
+    ],
+    "extents_m": [
+      0.499964,
+      0.405,
+      0.256
+    ],
+    "watertight": false
+  },
+  "left_track": {
+    "source": "left_track_global.stl",
+    "origin_in_base_m": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "original_faces": 191100,
+    "output_faces": 191100,
+    "vertices": 95200,
+    "bounds_m": [
+      [
+        -0.301063,
+        0.103882,
+        -0.10699
+      ],
+      [
+        0.297937,
+        0.274499,
+        0.11551
+      ]
+    ],
+    "extents_m": [
+      0.599001,
+      0.170617,
+      0.222501
+    ],
+    "watertight": true
+  },
+  "right_track": {
+    "source": "right_track_global.stl",
+    "origin_in_base_m": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "original_faces": 191100,
+    "output_faces": 191100,
+    "vertices": 95200,
+    "bounds_m": [
+      [
+        -0.301063,
+        -0.273718,
+        -0.10699
+      ],
+      [
+        0.297937,
+        -0.103101,
+        0.11551
+      ]
+    ],
+    "extents_m": [
+      0.599001,
+      0.170617,
+      0.222501
+    ],
+    "watertight": true
+  },
+  "left_front_idler": {
+    "source": "left_front_idler_global.stl",
+    "origin_in_base_m": [
+      0.185,
+      0.18855,
+      0.0
+    ],
+    "original_faces": 10815,
+    "output_faces": 10815,
+    "vertices": 5510,
+    "bounds_m": [
+      [
+        -0.101009,
+        -0.01525,
+        -0.099426
+      ],
+      [
+        0.100946,
+        0.01525,
+        0.101518
+      ]
+    ],
+    "extents_m": [
+      0.201955,
+      0.0305,
+      0.200944
+    ],
+    "watertight": false
+  },
+  "right_front_idler": {
+    "source": "right_front_idler_global.stl",
+    "origin_in_base_m": [
+      0.185,
+      -0.18855,
+      0.0
+    ],
+    "original_faces": 10815,
+    "output_faces": 10815,
+    "vertices": 5510,
+    "bounds_m": [
+      [
+        -0.100946,
+        -0.01525,
+        -0.099426
+      ],
+      [
+        0.101009,
+        0.01525,
+        0.101518
+      ]
+    ],
+    "extents_m": [
+      0.201955,
+      0.0305,
+      0.200944
+    ],
+    "watertight": false
+  },
+  "left_rear_drive": {
+    "source": "left_rear_drive_global.stl",
+    "origin_in_base_m": [
+      -0.185,
+      0.1888,
+      0.0
+    ],
+    "original_faces": 18704,
+    "output_faces": 18704,
+    "vertices": 9795,
+    "bounds_m": [
+      [
+        -0.100351,
+        -0.0326,
+        -0.100257
+      ],
+      [
+        0.101367,
+        0.015,
+        0.101398
+      ]
+    ],
+    "extents_m": [
+      0.201718,
+      0.0476,
+      0.201655
+    ],
+    "watertight": false
+  },
+  "right_rear_drive": {
+    "source": "right_rear_drive_global.stl",
+    "origin_in_base_m": [
+      -0.185,
+      -0.1888,
+      0.0
+    ],
+    "original_faces": 18704,
+    "output_faces": 18704,
+    "vertices": 9795,
+    "bounds_m": [
+      [
+        -0.101398,
+        -0.015,
+        -0.101367
+      ],
+      [
+        0.100257,
+        0.0326,
+        0.100351
+      ]
+    ],
+    "extents_m": [
+      0.201655,
+      0.0476,
+      0.201718
+    ],
+    "watertight": false
+  }
+}

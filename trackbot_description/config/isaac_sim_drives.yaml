@@ -1,0 +1,53 @@
+# Conservative starting values for post-import Isaac Sim drive setup.
+# These settings are documentation/configuration data; a plain URDF does not
+# apply per-joint PhysX gains automatically. Tune on the imported USD with the
+# Gain Tuner before increasing stiffness or force limits.
+drive_type: force
+
+velocity_drives:
+  left_rear_drive_joint:
+    stiffness: 0.0
+    damping: 30.0
+    max_force: 30.0
+  right_rear_drive_joint:
+    stiffness: 0.0
+    damping: 30.0
+    max_force: 30.0
+
+passive_joints:
+  - left_front_idler_joint
+  - right_front_idler_joint
+
+position_drives:
+  shoulder_pan:
+    stiffness: 20.0
+    damping: 1.5
+    max_force: 1.5
+  shoulder_lift:
+    stiffness: 35.0
+    damping: 2.5
+    max_force: 1.5
+  elbow_flex:
+    stiffness: 25.0
+    damping: 2.0
+    max_force: 1.5
+  wrist_flex:
+    stiffness: 12.0
+    damping: 1.0
+    max_force: 1.5
+  wrist_roll:
+    stiffness: 6.0
+    damping: 0.5
+    max_force: 1.5
+  gripper:
+    stiffness: 800.0
+    damping: 25.0
+    max_force: 60.0
+
+# left_clamp is a -1 mimic of gripper and must not receive an independent
+# command target. Confirm the mimic relationship after URDF import.
+mimic_joints:
+  left_clamp:
+    source: gripper
+    multiplier: -1.0
+    offset: 0.0

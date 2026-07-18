@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "com.januscx.valera-vr-gateway": "file:../../Valera.VrGateway",
+    "com.unity.test-framework": "1.4.5",
+    "com.unity.xr.management": "4.5.0",
+    "com.unity.xr.openxr": "1.14.3"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "Valera.QuestHeadClient.Runtime",
+  "rootNamespace": "Valera.QuestHeadClient",
+  "references": ["Valera.VrGateway.Runtime"],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

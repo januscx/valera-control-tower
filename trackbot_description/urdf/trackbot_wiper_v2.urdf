@@ -1,0 +1,655 @@
+<?xml version="1.0"?>
+<robot name="valera_trackbot_wiper_v2">
+  <!--
+    Geometry reconstructed from trackbot wiper v25.step (Fusion revision 26).
+    ROS frame: +X forward, +Y left, +Z up. Units are SI.
+
+    The tread shoes are fixed visual geometry. Four cylindrical contact wheels
+    provide a stable skid-steer physics approximation in Isaac Sim. The rear
+    pair is driven; the front pair is passive.
+  -->
+
+  <material name="chassis_white">
+    <color rgba="0.82 0.80 0.72 1.0"/>
+  </material>
+  <material name="printed_black">
+    <color rgba="0.035 0.035 0.04 1.0"/>
+  </material>
+
+  <link name="base_link">
+    <inertial>
+      <!-- Estimated mass includes motors, batteries, rods and electronics. -->
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="7.6"/>
+      <inertia ixx="0.07473" ixy="0" ixz="0"
+               iyy="0.16904" iyz="0" izz="0.22236"/>
+    </inertial>
+    <visual name="chassis_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/visual/base.stl" scale="1 1 1"/>
+      </geometry>
+      <material name="chassis_white"/>
+    </visual>
+    <collision name="chassis_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.500 0.318 0.130"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="left_track_visual_link">
+    <inertial>
+      <origin xyz="0 0.188 0" rpy="0 0 0"/>
+      <mass value="1.2"/>
+      <inertia ixx="0.00790" ixy="0" ixz="0"
+               iyy="0.04085" iyz="0" izz="0.03881"/>
+    </inertial>
+    <visual name="left_track_visual">
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/visual/left_track.stl" scale="1 1 1"/>
+      </geometry>
+      <material name="printed_black"/>
+    </visual>
+  </link>
+
+  <joint name="left_track_visual_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="left_track_visual_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="right_track_visual_link">
+    <inertial>
+      <origin xyz="0 -0.188 0" rpy="0 0 0"/>
+      <mass value="1.2"/>
+      <inertia ixx="0.00790" ixy="0" ixz="0"
+               iyy="0.04085" iyz="0" izz="0.03881"/>
+    </inertial>
+    <visual name="right_track_visual">
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/visual/right_track.stl" scale="1 1 1"/>
+      </geometry>
+      <material name="printed_black"/>
+    </visual>
+  </link>
+
+  <joint name="right_track_visual_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="right_track_visual_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="left_front_idler_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.45"/>
+      <inertia ixx="0.001194" ixy="0" ixz="0"
+               iyy="0.002318" iyz="0" izz="0.001194"/>
+    </inertial>
+    <visual name="left_front_idler_visual">
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/visual/left_front_idler.stl" scale="1 1 1"/>
+      </geometry>
+      <material name="printed_black"/>
+    </visual>
+    <collision name="left_front_contact">
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0"/>
+      <geometry>
+        <cylinder radius="0.115" length="0.163"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="left_front_idler_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="left_front_idler_link"/>
+    <origin xyz="0.1850 0.18855 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="4.0" velocity="4.0"/>
+    <dynamics damping="0.08" friction="0.03"/>
+  </joint>
+
+  <link name="right_front_idler_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.45"/>
+      <inertia ixx="0.001194" ixy="0" ixz="0"
+               iyy="0.002318" iyz="0" izz="0.001194"/>
+    </inertial>
+    <visual name="right_front_idler_visual">
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/visual/right_front_idler.stl" scale="1 1 1"/>
+      </geometry>
+      <material name="printed_black"/>
+    </visual>
+    <collision name="right_front_contact">
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0"/>
+      <geometry>
+        <cylinder radius="0.115" length="0.163"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="right_front_idler_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="right_front_idler_link"/>
+    <origin xyz="0.1850 -0.18855 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="4.0" velocity="4.0"/>
+    <dynamics damping="0.08" friction="0.03"/>
+  </joint>
+
+  <link name="left_rear_drive_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.75"/>
+      <inertia ixx="0.002073" ixy="0" ixz="0"
+               iyy="0.003863" iyz="0" izz="0.002073"/>
+    </inertial>
+    <visual name="left_rear_drive_visual">
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/visual/left_rear_drive.stl" scale="1 1 1"/>
+      </geometry>
+      <material name="printed_black"/>
+    </visual>
+    <collision name="left_rear_contact">
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0"/>
+      <geometry>
+        <cylinder radius="0.115" length="0.163"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="left_rear_drive_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="left_rear_drive_link"/>
+    <origin xyz="-0.1850 0.18880 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="30.0" velocity="2.5"/>
+    <dynamics damping="0.35" friction="0.08"/>
+  </joint>
+
+  <link name="right_rear_drive_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.75"/>
+      <inertia ixx="0.002073" ixy="0" ixz="0"
+               iyy="0.003863" iyz="0" izz="0.002073"/>
+    </inertial>
+    <visual name="right_rear_drive_visual">
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/visual/right_rear_drive.stl" scale="1 1 1"/>
+      </geometry>
+      <material name="printed_black"/>
+    </visual>
+    <collision name="right_rear_contact">
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0"/>
+      <geometry>
+        <cylinder radius="0.115" length="0.163"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="right_rear_drive_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="right_rear_drive_link"/>
+    <origin xyz="-0.1850 -0.18880 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="30.0" velocity="2.5"/>
+    <dynamics damping="0.35" friction="0.08"/>
+  </joint>
+
+  <link name="imu_link"/>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="0 0 0.075" rpy="0 0 0"/>
+  </joint>
+
+  <link name="gps_link"/>
+  <joint name="gps_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="gps_link"/>
+    <origin xyz="0.0001 0.0250 0.1910" rpy="0 0 0"/>
+  </joint>
+  <!--
+    SO-101 follower mount reconstructed from the supplied photographs.
+    Mount centre relative to base_link: 165 mm forward, 90 mm right,
+    on the 65 mm-high chassis top plane. Zero yaw makes the arm face +X.
+    Arm geometry: TheRobotStudio/SO-ARM100, new-calibration URDF,
+    commit fda892cba81032c46c40976a48c9ceadbf40a9ca (Apache-2.0).
+  -->
+
+  <joint name="so101_mount_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="so101_base_link"/>
+    <origin xyz="0.120 -0.075 0.065" rpy="0 0 0"/>
+  </joint>
+
+
+  <!-- Materials -->
+  <material name="so101_red">
+    <color rgba="0.82 0.015 0.01 1.0"/>
+  </material>
+  <material name="sts3215">
+    <color rgba="0.1 0.1 0.1 1.0"/>
+  </material>
+  <material name="parallel_gripper_gray">
+    <color rgba="0.26 0.28 0.31 1.0"/>
+  </material>
+
+  <!-- Link base -->
+  <link name="so101_base_link">
+    <inertial>
+      <origin xyz="0.0137179 -5.19711e-05 0.0334843" rpy="0 0 0"/>
+      <mass value="0.147"/>
+      <inertia ixx="0.000114686" ixy="-4.59787e-07" ixz="4.97151e-06" iyy="0.000136117" iyz="9.75275e-08" izz="0.000130364"/>
+    </inertial>
+    <!-- Part base_motor_holder_so101_v1 -->
+    <visual>
+      <origin xyz="-0.00636471 -9.94414e-05 -0.0024" rpy="1.5708 -1.67685e-15 1.5708"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/base_motor_holder_so101_v1.stl"/>
+      </geometry>
+      <material name="so101_red"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.00636471 -9.94414e-05 -0.0024" rpy="1.5708 -1.67685e-15 1.5708"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/base_motor_holder_so101_v1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part base_so101_v2 -->
+    <visual>
+      <origin xyz="-0.00636471 -8.97657e-09 -0.0024" rpy="1.5708 -2.78073e-29 1.5708"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/base_so101_v2.stl"/>
+      </geometry>
+      <material name="so101_red"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.00636471 -8.97657e-09 -0.0024" rpy="1.5708 -2.78073e-29 1.5708"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/base_so101_v2.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part sts3215_03a_v1 -->
+    <visual>
+      <origin xyz="0.0263353 -8.97657e-09 0.0437" rpy="-8.21148e-16 7.84513e-18 1.249e-15"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/sts3215_03a_v1.stl"/>
+      </geometry>
+      <material name="sts3215"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0263353 -8.97657e-09 0.0437" rpy="-8.21148e-16 7.84513e-18 1.249e-15"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/sts3215_03a_v1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part waveshare_mounting_plate_so101_v2 -->
+    <visual>
+      <origin xyz="-0.0309827 -0.000199441 0.0474" rpy="1.5708 -1.35493e-14 1.5708"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/waveshare_mounting_plate_so101_v2.stl"/>
+      </geometry>
+      <material name="so101_red"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.0309827 -0.000199441 0.0474" rpy="1.5708 -1.35493e-14 1.5708"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/waveshare_mounting_plate_so101_v2.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Link shoulder -->
+  <link name="shoulder_link">
+    <inertial>
+      <origin xyz="-0.0307604 -1.66727e-05 -0.0252713" rpy="0 0 0"/>
+      <mass value="0.100006"/>
+      <inertia ixx="8.3759e-05" ixy="7.55525e-08" ixz="-1.16342e-06" iyy="8.10403e-05" iyz="1.54663e-07" izz="2.39783e-05"/>
+    </inertial>
+    <!-- Part sts3215_03a_v1_2 -->
+    <visual>
+      <origin xyz="-0.0303992 0.000422241 -0.0417" rpy="1.5708 1.5708 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/sts3215_03a_v1.stl"/>
+      </geometry>
+      <material name="sts3215"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.0303992 0.000422241 -0.0417" rpy="1.5708 1.5708 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/sts3215_03a_v1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part motor_holder_so101_base_v1 -->
+    <visual>
+      <origin xyz="-0.0675992 -0.000177759 0.0158499" rpy="1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/motor_holder_so101_base_v1.stl"/>
+      </geometry>
+      <material name="so101_red"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.0675992 -0.000177759 0.0158499" rpy="1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/motor_holder_so101_base_v1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part rotation_pitch_so101_v1 -->
+    <visual>
+      <origin xyz="0.0122008 2.22413e-05 0.0464" rpy="-1.5708 2.35221e-33 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/rotation_pitch_so101_v1.stl"/>
+      </geometry>
+      <material name="so101_red"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0122008 2.22413e-05 0.0464" rpy="-1.5708 2.35221e-33 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/rotation_pitch_so101_v1.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Link upper_arm -->
+  <link name="upper_arm_link">
+    <inertial>
+      <origin xyz="-0.0898471 -0.00838224 0.0184089" rpy="0 0 0"/>
+      <mass value="0.103"/>
+      <inertia ixx="4.08002e-05" ixy="-1.97819e-05" ixz="-4.03016e-08" iyy="0.000147318" iyz="8.97326e-09" izz="0.000142487"/>
+    </inertial>
+    <!-- Part sts3215_03a_v1_3 -->
+    <visual>
+      <origin xyz="-0.11257 -0.0155 0.0187" rpy="-3.14159 -5.27356e-16 -1.5708"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/sts3215_03a_v1.stl"/>
+      </geometry>
+      <material name="sts3215"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.11257 -0.0155 0.0187" rpy="-3.14159 -5.27356e-16 -1.5708"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/sts3215_03a_v1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part upper_arm_so101_v1 -->
+    <visual>
+      <origin xyz="-0.065085 0.012 0.0182" rpy="3.14159 -0 -1.30911e-30"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/upper_arm_so101_v1.stl"/>
+      </geometry>
+      <material name="so101_red"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.065085 0.012 0.0182" rpy="3.14159 -0 -1.30911e-30"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/upper_arm_so101_v1.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Link lower_arm -->
+  <link name="lower_arm_link">
+    <inertial>
+      <origin xyz="-0.0980701 0.00324376 0.0182831" rpy="0 0 0"/>
+      <mass value="0.104"/>
+      <inertia ixx="2.87438e-05" ixy="7.41152e-06" ixz="1.26409e-06" iyy="0.000159844" iyz="-4.90188e-08" izz="0.00014529"/>
+    </inertial>
+    <!-- Part under_arm_so101_v1 -->
+    <visual>
+      <origin xyz="-0.0648499 -0.032 0.0182" rpy="3.14159 -0 6.67202e-31"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/under_arm_so101_v1.stl"/>
+      </geometry>
+      <material name="so101_red"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.0648499 -0.032 0.0182" rpy="3.14159 -0 6.67202e-31"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/under_arm_so101_v1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part motor_holder_so101_wrist_v1 -->
+    <visual>
+      <origin xyz="-0.0648499 -0.032 0.018" rpy="-3.14159 -2.55351e-15 -1.83387e-30"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/motor_holder_so101_wrist_v1.stl"/>
+      </geometry>
+      <material name="so101_red"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.0648499 -0.032 0.018" rpy="-3.14159 -2.55351e-15 -1.83387e-30"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/motor_holder_so101_wrist_v1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part sts3215_03a_v1_4 -->
+    <visual>
+      <origin xyz="-0.1224 0.0052 0.0187" rpy="-3.14159 -7.88861e-31 -3.14159"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/sts3215_03a_v1.stl"/>
+      </geometry>
+      <material name="sts3215"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.1224 0.0052 0.0187" rpy="-3.14159 -7.88861e-31 -3.14159"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/sts3215_03a_v1.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Link wrist -->
+  <link name="wrist_link">
+    <inertial>
+      <origin xyz="-0.000103312 -0.0386143 0.0281156" rpy="0 0 0"/>
+      <mass value="0.079"/>
+      <inertia ixx="3.68263e-05" ixy="1.7893e-08" ixz="-5.28128e-08" iyy="2.5391e-05" iyz="3.6412e-06" izz="2.1e-05"/>
+    </inertial>
+    <!-- Part sts3215_03a_no_horn_v1 -->
+    <visual>
+      <origin xyz="8.32667e-17 -0.0424 0.0306" rpy="1.5708 1.5708 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/sts3215_03a_no_horn_v1.stl"/>
+      </geometry>
+      <material name="sts3215"/>
+    </visual>
+    <collision>
+      <origin xyz="8.32667e-17 -0.0424 0.0306" rpy="1.5708 1.5708 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/sts3215_03a_no_horn_v1.stl"/>
+      </geometry>
+    </collision>
+    <!-- Part wrist_roll_pitch_so101_v2 -->
+    <visual>
+      <origin xyz="0 -0.028 0.0181" rpy="-1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/wrist_roll_pitch_so101_v2.stl"/>
+      </geometry>
+      <material name="so101_red"/>
+    </visual>
+    <collision>
+      <origin xyz="0 -0.028 0.0181" rpy="-1.5708 -1.5708 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/so101/wrist_roll_pitch_so101_v2.stl"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!--
+    Robonine SO-ARM100/101 Parallel Gripper, adapted to the upstream SO-101
+    wrist frame. Source commit 3e6befa7c82a720df1f48587b38fe562fc67f2cc
+    (GPL-3.0). The primary prismatic joint keeps the canonical name
+    "gripper" for compatibility with existing SO-101 control mappings.
+  -->
+  <link name="gripper_link">
+    <inertial>
+      <!-- 120 g main body; conservative box-equivalent inertia. -->
+      <origin xyz="0.0296384 -0.0000770 -0.0332199" rpy="0 0 0"/>
+      <mass value="0.120"/>
+      <inertia ixx="0.000220065" ixy="0" ixz="0"
+               iyy="0.000177128" iyz="0" izz="0.000291986"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.1515419 -0.0144528 0.1206275"
+              rpy="1.5707992 0.0000037 1.6194758"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/parallel_gripper/visual/link5_1.stl"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="parallel_gripper_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.1515419 -0.0144528 0.1206275"
+              rpy="1.5707992 0.0000037 1.6194758"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/parallel_gripper/collision/link5_1.stl"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="right_clamp_link">
+    <inertial>
+      <origin xyz="0.0413169 0.1282868 0.1860310" rpy="0 0 0"/>
+      <mass value="0.025"/>
+      <inertia ixx="0.0000178064" ixy="0" ixz="0"
+               iyy="0.0000128126" iyz="0" izz="0.0000216775"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.045072 0.340704 0.033971" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/parallel_gripper/visual/clamp_1.stl"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="parallel_gripper_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="0.045072 0.340704 0.033971" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/parallel_gripper/collision/clamp_1.stl"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="left_clamp_link">
+    <inertial>
+      <origin xyz="-0.0611467 0.1304859 0.1835200" rpy="0 0 0"/>
+      <mass value="0.025"/>
+      <inertia ixx="0.0000178049" ixy="0" ixz="0"
+               iyy="0.0000128135" iyz="0" izz="0.0000216769"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.079890 0.342905 0.031809" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/parallel_gripper/visual/clamp_2.stl"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="parallel_gripper_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.079890 0.342905 0.031809" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://trackbot_description/meshes/parallel_gripper/collision/clamp_2.stl"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Servo-driven jaw; 37 mm travel. -->
+  <joint name="gripper" type="prismatic">
+    <origin xyz="-0.1832804 -0.0611257 -0.2200763"
+            rpy="1.5707992 0.0000037 1.6194758"/>
+    <parent link="gripper_link"/>
+    <child link="right_clamp_link"/>
+    <axis xyz="0.999848 -0.000154 0.017451"/>
+    <limit effort="60" velocity="0.014" lower="0.0" upper="0.037"/>
+    <dynamics damping="20" friction="2"/>
+  </joint>
+
+  <!-- Opposite jaw mirrors the servo-driven jaw. -->
+  <joint name="left_clamp" type="prismatic">
+    <origin xyz="-0.1872016 0.0637935 -0.2222778"
+            rpy="1.5707992 0.0000037 1.6194758"/>
+    <parent link="gripper_link"/>
+    <child link="left_clamp_link"/>
+    <axis xyz="0.999848 -0.000154 0.017451"/>
+    <limit effort="60" velocity="0.014" lower="-0.038" upper="0.0"/>
+    <dynamics damping="20" friction="2"/>
+    <mimic joint="gripper" multiplier="-1" offset="0"/>
+  </joint>
+
+  <!-- Tool-centre point at the midpoint of the jaw tips. -->
+  <link name="gripper_frame_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1e-9"/>
+      <inertia ixx="1e-12" ixy="0" ixz="0"
+               iyy="1e-12" iyz="0" izz="1e-12"/>
+    </inertial>
+  </link>
+
+  <joint name="gripper_frame_joint" type="fixed">
+    <origin xyz="0 0 -0.13179" rpy="0 3.14159 0"/>
+    <parent link="gripper_link"/>
+    <child link="gripper_frame_link"/>
+  </joint>
+
+  <!-- Joint from wrist to gripper -->
+  <joint name="wrist_roll" type="revolute">
+    <origin xyz="5.55112e-17 -0.0611 0.0181" rpy="1.5708 0.0486795 3.14159"/>
+    <parent link="wrist_link"/>
+    <child link="gripper_link"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="1.5" velocity="5.236" lower="-2.74385" upper="2.84121"/>
+    <dynamics damping="0.08" friction="0.02"/>
+  </joint>
+
+  <!-- Joint from lower_arm to wrist -->
+  <joint name="wrist_flex" type="revolute">
+    <origin xyz="-0.1349 0.0052 3.62355e-17" rpy="4.02456e-15 8.67362e-16 -1.5708"/>
+    <parent link="lower_arm_link"/>
+    <child link="wrist_link"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="1.5" velocity="5.236" lower="-1.65806" upper="1.65806"/>
+    <dynamics damping="0.10" friction="0.03"/>
+  </joint>
+
+  <!-- Joint from upper_arm to lower_arm -->
+  <!-- Note: 5-degree calibration offset applied to joint limits -->
+  <joint name="elbow_flex" type="revolute">
+    <origin xyz="-0.11257 -0.028 1.73763e-16" rpy="-3.63608e-16 8.74301e-16 1.5708"/>
+    <parent link="upper_arm_link"/>
+    <child link="lower_arm_link"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="1.5" velocity="5.236" lower="-1.69" upper="1.69"/>
+    <dynamics damping="0.12" friction="0.04"/>
+  </joint>
+
+  <!-- Joint from shoulder to upper_arm -->
+  <joint name="shoulder_lift" type="revolute">
+    <origin xyz="-0.0303992 -0.0182778 -0.0542" rpy="-1.5708 -1.5708 0"/>
+    <parent link="shoulder_link"/>
+    <child link="upper_arm_link"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="1.5" velocity="5.236" lower="-1.74533" upper="1.74533"/>
+    <dynamics damping="0.16" friction="0.05"/>
+  </joint>
+
+  <!-- Joint from base to shoulder -->
+  <joint name="shoulder_pan" type="revolute">
+    <origin xyz="0.0388353 -8.97657e-09 0.0624" rpy="3.14159 4.18253e-17 -3.14159"/>
+    <parent link="so101_base_link"/>
+    <child link="shoulder_link"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="1.5" velocity="5.236" lower="-1.91986" upper="1.91986"/>
+    <dynamics damping="0.12" friction="0.04"/>
+  </joint>
+
+</robot>

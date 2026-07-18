@@ -1,0 +1,50 @@
+robot_name: valera_trackbot_wiper_v2
+base_link: base_link
+
+# Effective contact geometry used by the URDF skid-steer approximation.
+wheel_radius: 0.115
+wheel_separation: 0.3776
+wheel_base: 0.3700
+
+driven_joints:
+  left: left_rear_drive_joint
+  right: right_rear_drive_joint
+
+passive_joints:
+  - left_front_idler_joint
+  - right_front_idler_joint
+
+frames:
+  imu: imu_link
+  gps: gps_link
+  tool: gripper_frame_link
+
+parallel_gripper:
+  primary_joint: gripper
+  mimic_joint: left_clamp
+  simulated_total_stroke: 0.075
+
+# CAD-derived base envelope, including track shoes and mast.
+envelope:
+  length: 0.599
+  width: 0.548
+  body_height: 0.230
+  visual_height: 0.298
+  contact_model_height: 0.306
+
+# Axis-aligned envelope in the URDF nominal zero pose. This is not a swept
+# volume: motion planning must use the link collision meshes at runtime.
+v2_nominal_zero_pose_envelope:
+  min: [-0.301063, -0.273718, -0.106990]
+  max: [0.590028, 0.274499, 0.384540]
+  length: 0.891091
+  width: 0.548217
+  height: 0.491530
+
+base_mass: 12.4
+so101_mass_without_gripper: 0.533006
+parallel_gripper_mass: 0.170000
+arm_mass: 0.703006
+estimated_total_mass: 13.103006
+maximum_joint_velocity: 2.5
+nominal_max_linear_speed: 0.2875

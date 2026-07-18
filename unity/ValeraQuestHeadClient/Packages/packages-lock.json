@@ -1,0 +1,30 @@
+{
+  "dependencies": {
+    "com.januscx.valera-vr-gateway": {
+      "version": "file:../../Valera.VrGateway",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
+    "com.unity.test-framework": {
+      "version": "1.4.5",
+      "depth": 0,
+      "source": "registry",
+      "dependencies": {}
+    },
+    "com.unity.xr.management": {
+      "version": "4.5.0",
+      "depth": 0,
+      "source": "registry",
+      "dependencies": {}
+    },
+    "com.unity.xr.openxr": {
+      "version": "1.14.3",
+      "depth": 0,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.xr.management": "4.5.0"
+      }
+    }
+  }
+}

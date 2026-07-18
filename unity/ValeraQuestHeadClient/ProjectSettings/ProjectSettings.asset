@@ -1,0 +1,61 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!129 &1
+PlayerSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 27
+  productGUID: 4b5dd1c8e9ce4d8a8f16dca9d1a32b01
+  AndroidProfiler: 0
+  AndroidFilterTouchesWhenObscured: 0
+  AndroidEnableSustainedPerformanceMode: 0
+  defaultScreenOrientation: 4
+  targetDevice: 2
+  useOnDemandResources: 0
+  useOSAutorotation: 1
+  applicationIdentifier:
+    Standalone: com.januscx.valera.questheadclient
+    Android: com.januscx.valera.quest.headclient
+  bundleVersion: 0.1.0
+  metroPackageVersion: 1.0.0.0
+  AndroidBundleVersionCode: 1
+  AndroidMinSdkVersion: 29
+  AndroidTargetSdkVersion: 35
+  AndroidPreferredInstallLocation: 1
+  AndroidTargetArchitectures: 1
+  scriptingBackend:
+    Standalone: 1
+    Android: 1
+  il2cppCompilerConfiguration: {}
+  activeInputHandler: 1
+  apiCompatibilityLevelPerPlatform: {}
+  scriptingDefineSymbols: {}
+  additionalCompilerArguments: {}
+  metroInputSource: 0
+  xboxOneDisableKinectGpuReservation: 1
+  xboxOneEnable7thCore: 1
+  xboxOneEnable8thCore: 1
+  xboxOneEnable9thCore: 1
+  xboxOneEnable10thCore: 1
+  xboxOneEnable11thCore: 1
+  xboxOneEnable12thCore: 1
+  xboxOneEnable13thCore: 1
+  xboxOneEnable14thCore: 1
+  xboxOneEnable15thCore: 1
+  xboxOneEnable16thCore: 1
+  vrSettings:
+    enable360StereoCapture: 0
+    enabledDevices: []
+  enableOpenGLProfilerGPURecorders: 1
+  allowUnsafeCode: 0
+  useDeterministicCompilation: 1
+  androidEnableArmv9SecurityFeatures: 0
+  androidApplicationEntry: 1
+  androidGamepadSupport: 0
+  androidStartInFullscreen: 1
+  androidRenderOutsideSafeArea: 1
+  androidResizableWindow: 0
+  androidDefaultWindowWidth: 1920
+  androidDefaultWindowHeight: 1080
+  androidMinimumWindowWidth: 400
+  androidMinimumWindowHeight: 300
+  androidFullscreenMode: 1
