@@ -173,7 +173,7 @@ def scenario_session_and_pose(probe: RosProbe) -> None:
     probe.publish(recenter())
     recenter_event = probe.collect(1, time.monotonic() + 2)[0]
     assert recenter_event["event_type"] == "gateway.state"
-    assert recenter_event["state"] == "HEAD_ACTIVE"
+    assert recenter_event["state"] == "ACTIVE"
     assert recenter_event["session_id"] == "smoke-session"
     assert recenter_event["sequence"] == 2
     probe.publish(pose())

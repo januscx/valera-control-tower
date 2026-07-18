@@ -7,6 +7,8 @@ from robot.vr_gateway.messages import (
     CommandEnvelope,
     CommandName,
     EmptyPayload,
+    GatewayState,
+    GatewayStateEvent,
     ModeSetPayload,
     PosePayload,
     Quaternion,
@@ -53,7 +55,7 @@ def test_unknown_unity_mode_is_rejected_by_the_python_gateway():
 
 
 @pytest.mark.parametrize("mode", ["drive", "arm"])
-def test_blocked_unity_modes_are_rejected_by_the_python_gateway(mode):
+def test_unity_valid_modes_are_accepted_by_the_python_gateway(mode):
     gateway = _build_gateway()
     _start_session(gateway)
 
@@ -63,11 +65,10 @@ def test_blocked_unity_modes_are_rejected_by_the_python_gateway(mode):
         )
     )
 
-    assert len(events) == 1
-    assert events[0].code is RejectionCode.MODE_BLOCKED
+    assert events == ()
 
 
-def test_session_start_rejects_drive_and_arm_requested_modes():
+def test_session_start_accepts_drive_and_arm_requested_modes():
     gateway = _build_gateway()
 
     drive_events = gateway.handle(
@@ -81,8 +82,12 @@ def test_session_start_rejects_drive_and_arm_requested_modes():
         )
     )
 
-    assert drive_events[0].code is RejectionCode.MODE_BLOCKED
-    assert arm_events[0].code is RejectionCode.MODE_BLOCKED
+    assert len(drive_events) == 1
+    assert isinstance(drive_events[0], GatewayStateEvent)
+    assert drive_events[0].state == GatewayState.AWAITING_RECENTER
+    assert len(arm_events) == 1
+    assert isinstance(arm_events[0], GatewayStateEvent)
+    assert arm_events[0].state == GatewayState.AWAITING_RECENTER
 
 
 def test_head_pose_without_position_is_accepted_by_the_python_gateway():
@@ -134,9 +139,9 @@ def test_malformed_command_payload_fails_closed_in_python_gateway():
 
 
 def test_python_event_correlation_serializes_as_null_when_unavailable():
-    from robot.vr_gateway.messages import GatewayState, GatewayStateEvent
+    from robot.vr_gateway.messages import ControlMode, GatewayState, GatewayStateEvent
 
-    event = GatewayStateEvent(1, GatewayState.IDLE, None, None)
+    event = GatewayStateEvent(1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None)
     serialized = json.loads(json.dumps({k: v for k, v in event.__dict__.items()}))
 
     assert serialized["session_id"] is None
@@ -146,9 +151,9 @@ def test_python_event_correlation_serializes_as_null_when_unavailable():
 
 
 def test_python_event_correlation_serializes_values_when_available():
-    from robot.vr_gateway.messages import GatewayState, GatewayStateEvent
+    from robot.vr_gateway.messages import ControlMode, GatewayState, GatewayStateEvent
 
-    event = GatewayStateEvent(1, GatewayState.HEAD_ACTIVE, "s-1", 2)
+    event = GatewayStateEvent(1, GatewayState.ACTIVE, ControlMode.HEAD_ONLY, "s-1", 2)
     serialized = json.loads(json.dumps({k: v for k, v in event.__dict__.items()}))
 
     assert serialized["session_id"] == "s-1"

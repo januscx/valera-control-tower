@@ -2,13 +2,19 @@ import pytest
 
 from robot.vr_gateway.gateway import GatewayConfig, VrGateway
 from robot.vr_gateway.messages import (
+    ArmJogPayload,
+    ArmTargetEvent,
+    BaseDrivePayload,
+    BaseTargetEvent,
     CommandEnvelope,
     CommandName,
     CommandRejectedEvent,
+    ControlMode,
     EmptyPayload,
     GatewayState,
     GatewayStateEvent,
     ModeSetPayload,
+    ModeTransition,
     NeckTargetEvent,
     PosePayload,
     Quaternion,
@@ -140,6 +146,68 @@ def pose(
     )
 
 
+def start_drive(
+    gateway: VrGateway,
+    *,
+    session_id: str = "session-d",
+    sequence: int = 1,
+) -> tuple:
+    return gateway.handle(
+        command(
+            CommandName.SESSION_START,
+            SessionStartPayload("drive"),
+            session_id=session_id,
+            sequence=sequence,
+        )
+    )
+
+
+def start_arm(
+    gateway: VrGateway,
+    *,
+    session_id: str = "session-a",
+    sequence: int = 1,
+) -> tuple:
+    return gateway.handle(
+        command(
+            CommandName.SESSION_START,
+            SessionStartPayload("arm"),
+            session_id=session_id,
+            sequence=sequence,
+        )
+    )
+
+
+def activate_drive(
+    gateway: VrGateway,
+    *,
+    session_id: str = "session-d",
+    sequence: int = 2,
+    timestamp_ms: int = 1,
+) -> tuple:
+    return recenter(
+        gateway,
+        session_id=session_id,
+        sequence=sequence,
+        timestamp_ms=timestamp_ms,
+    )
+
+
+def activate_arm(
+    gateway: VrGateway,
+    *,
+    session_id: str = "session-a",
+    sequence: int = 2,
+    timestamp_ms: int = 1,
+) -> tuple:
+    return recenter(
+        gateway,
+        session_id=session_id,
+        sequence=sequence,
+        timestamp_ms=timestamp_ms,
+    )
+
+
 def estop(
     gateway: VrGateway,
     *,
@@ -180,7 +248,7 @@ def test_session_start_requires_sequence_one_and_enters_awaiting_recenter():
 
     assert invalid.code is RejectionCode.INVALID_PAYLOAD
     assert events == (
-        GatewayStateEvent(0, GatewayState.AWAITING_RECENTER, "session-a", 1),
+        GatewayStateEvent(0, GatewayState.AWAITING_RECENTER, ControlMode.HEAD_ONLY, "session-a", 1),
     )
     assert gateway.state is GatewayState.AWAITING_RECENTER
 
@@ -196,13 +264,12 @@ def test_session_start_routes_unknown_mode_and_rejects_reused_id():
     assert reused.code is RejectionCode.INVALID_PAYLOAD
 
 
-@pytest.mark.parametrize("requested_mode", ["drive", "arm"])
-def test_session_start_blocks_modes_outside_v0_1_scope(requested_mode):
+def test_session_start_rejects_unknown_mode():
     gateway, _ = make_gateway()
 
-    event = rejection(start(gateway, requested_mode=requested_mode))
+    event = rejection(start(gateway, requested_mode="banana"))
 
-    assert event.code is RejectionCode.MODE_BLOCKED
+    assert event.code is RejectionCode.UNKNOWN_MODE
 
 
 def test_new_session_invalidates_previous_session():
@@ -216,7 +283,7 @@ def test_new_session_invalidates_previous_session():
     )
 
     assert events == (
-        GatewayStateEvent(0, GatewayState.AWAITING_RECENTER, "session-b", 1),
+        GatewayStateEvent(0, GatewayState.AWAITING_RECENTER, ControlMode.HEAD_ONLY, "session-b", 1),
     )
     assert old_session.code is RejectionCode.SESSION_MISMATCH
 
@@ -242,7 +309,7 @@ def test_missing_and_mismatched_sessions_have_distinct_rejections():
     assert mismatch.code is RejectionCode.SESSION_MISMATCH
 
 
-def test_equal_timestamp_with_higher_sequence_is_accepted_without_state_event():
+def test_equal_timestamp_with_higher_sequence_is_accepted_with_state_event():
     gateway, _ = make_gateway()
     start(gateway)
 
@@ -255,7 +322,9 @@ def test_equal_timestamp_with_higher_sequence_is_accepted_without_state_event():
         )
     )
 
-    assert events == ()
+    assert len(events) == 1
+    assert isinstance(events[0], GatewayStateEvent)
+    assert events[0].current_mode is ControlMode.HEAD_ONLY
 
 
 def test_ordering_rejects_timestamp_regression_and_nonincreasing_sequence():
@@ -444,28 +513,16 @@ def test_extreme_finite_quaternion_is_safe_through_gateway_path():
     assert isinstance(events[0], NeckTargetEvent)
 
 
-def test_head_only_mode_routing_distinguishes_blocked_and_unknown_modes():
+def test_mode_set_rejects_unknown_mode():
     gateway, _ = make_gateway()
     start(gateway)
 
-    drive = rejection(
-        gateway.handle(
-            command(CommandName.MODE_SET, ModeSetPayload("drive"), sequence=2)
-        )
-    )
-    arm = rejection(
-        gateway.handle(
-            command(CommandName.MODE_SET, ModeSetPayload("arm"), sequence=2)
-        )
-    )
     banana = rejection(
         gateway.handle(
             command(CommandName.MODE_SET, ModeSetPayload("banana"), sequence=2)
         )
     )
 
-    assert drive.code is RejectionCode.MODE_BLOCKED
-    assert arm.code is RejectionCode.MODE_BLOCKED
     assert banana.code is RejectionCode.UNKNOWN_MODE
 
 
@@ -476,7 +533,7 @@ def test_first_recenter_enters_head_active_without_neck_target():
     events = recenter(gateway, orientation=Quaternion(0.0, 0.0, 0.0, 2.0))
 
     assert events == (
-        GatewayStateEvent(0, GatewayState.HEAD_ACTIVE, "session-a", 2),
+        GatewayStateEvent(0, GatewayState.ACTIVE, ControlMode.HEAD_ONLY, "session-a", 2),
     )
     assert not any(isinstance(event, NeckTargetEvent) for event in events)
 
@@ -549,7 +606,7 @@ def test_session_stop_enters_idle_and_emits_safe_hold_actions():
     )
 
     assert events == (
-        GatewayStateEvent(0, GatewayState.IDLE, "session-a", 3),
+        GatewayStateEvent(0, GatewayState.IDLE, ControlMode.HEAD_ONLY, "session-a", 3),
         SafetyStopEvent(0, StopReason.SESSION_STOPPED, "session-a", 3),
     )
     assert events[1].neck_action == "HOLD_LAST_POSITION"
@@ -570,6 +627,7 @@ def test_handshake_timeout_returns_to_idle_without_safety_stop():
         GatewayStateEvent(
             10_000_000_000,
             GatewayState.IDLE,
+            ControlMode.HEAD_ONLY,
             "session-a",
             1,
         ),
@@ -644,6 +702,7 @@ def test_late_recenter_expires_handshake_without_preceding_poll(elapsed_ms):
         GatewayStateEvent(
             elapsed_ms * 1_000_000,
             GatewayState.IDLE,
+            ControlMode.HEAD_ONLY,
             "session-a",
             1,
         ),
@@ -784,7 +843,7 @@ def test_rejected_commands_do_not_refresh_motion_watchdog():
         gateway.handle(
             command(
                 CommandName.MODE_SET,
-                ModeSetPayload("drive"),
+                ModeSetPayload("banana"),
                 sequence=4,
                 timestamp_ms=3,
             )
@@ -804,7 +863,7 @@ def test_rejected_commands_do_not_refresh_motion_watchdog():
     clock.advance_ms(1)
 
     assert stale.code is RejectionCode.STALE_SEQUENCE
-    assert blocked.code is RejectionCode.MODE_BLOCKED
+    assert blocked.code is RejectionCode.UNKNOWN_MODE
     assert malformed.code is RejectionCode.INVALID_PAYLOAD
     assert [type(event) for event in gateway.poll()] == [
         GatewayStateEvent,
@@ -865,6 +924,7 @@ def test_watchdog_recovery_requires_unique_session_and_new_recenter():
         GatewayStateEvent(
             250_000_000,
             GatewayState.AWAITING_RECENTER,
+            ControlMode.HEAD_ONLY,
             "session-b",
             1,
         ),
@@ -872,7 +932,7 @@ def test_watchdog_recovery_requires_unique_session_and_new_recenter():
     assert rejection(before_recenter).code is RejectionCode.MODE_BLOCKED
     assert not any(isinstance(item, NeckTargetEvent) for item in before_recenter)
     assert activated == (
-        GatewayStateEvent(250_000_000, GatewayState.HEAD_ACTIVE, "session-b", 3),
+        GatewayStateEvent(250_000_000, GatewayState.ACTIVE, ControlMode.HEAD_ONLY, "session-b", 3),
     )
 
 
@@ -969,3 +1029,316 @@ def test_estop_rejects_nonempty_payload_without_latching():
 
     assert event.code is RejectionCode.INVALID_PAYLOAD
     assert gateway.state is GatewayState.IDLE
+
+
+# ── Mode Transition Tests ──────────────────────────────────────────────
+
+
+def test_session_start_drive_sets_requested_mode():
+    gateway, clock = make_gateway()
+    start_drive(gateway)
+    assert gateway.current_mode is ControlMode.HEAD_ONLY
+    assert gateway.requested_mode is ControlMode.DRIVE
+
+
+def test_session_start_arm_sets_requested_mode():
+    gateway, clock = make_gateway()
+    start_arm(gateway)
+    assert gateway.current_mode is ControlMode.HEAD_ONLY
+    assert gateway.requested_mode is ControlMode.ARM
+
+
+def test_recenter_activates_requested_drive_mode():
+    gateway, clock = make_gateway()
+    start_drive(gateway)
+    events = activate_drive(gateway)
+    assert gateway.current_mode is ControlMode.DRIVE
+    assert gateway.requested_mode is None
+    assert gateway.transition is ModeTransition.NONE
+    assert events[0].state is GatewayState.ACTIVE
+    assert events[0].current_mode is ControlMode.DRIVE
+
+
+def test_recenter_activates_requested_arm_mode():
+    gateway, clock = make_gateway()
+    start_arm(gateway)
+    events = activate_arm(gateway)
+    assert gateway.current_mode is ControlMode.ARM
+    assert gateway.requested_mode is None
+    assert gateway.transition is ModeTransition.NONE
+    assert events[0].state is GatewayState.ACTIVE
+    assert events[0].current_mode is ControlMode.ARM
+
+
+def test_mode_set_drive_to_arm_begins_transition():
+    gateway, clock = make_gateway()
+    start_drive(gateway)
+    activate_drive(gateway)
+    events = gateway.handle(command(
+        CommandName.MODE_SET, ModeSetPayload("arm"),
+        session_id="session-d",
+        sequence=5, timestamp_ms=10,
+    ))
+    assert gateway.transition is ModeTransition.STOPPING_BASE
+    assert gateway.requested_mode is ControlMode.ARM
+
+
+def test_mode_set_head_to_drive_immediate():
+    gateway, clock = make_gateway()
+    start(gateway)
+    recenter(gateway)
+    events = gateway.handle(command(
+        CommandName.MODE_SET, ModeSetPayload("drive"),
+        sequence=5, timestamp_ms=10,
+    ))
+    assert gateway.current_mode is ControlMode.DRIVE
+    assert gateway.transition is ModeTransition.NONE
+    assert events == ()
+
+
+def test_mode_set_head_to_arm_immediate():
+    gateway, clock = make_gateway()
+    start(gateway)
+    recenter(gateway)
+    events = gateway.handle(command(
+        CommandName.MODE_SET, ModeSetPayload("arm"),
+        sequence=5, timestamp_ms=10,
+    ))
+    assert gateway.current_mode is ControlMode.ARM
+    assert gateway.transition is ModeTransition.NONE
+    assert events == ()
+
+
+def test_mode_set_drive_to_head_emits_gateway_state_event():
+    gateway, clock = make_gateway()
+    start(gateway)
+    recenter(gateway)
+    gateway.handle(command(
+        CommandName.MODE_SET, ModeSetPayload("drive"),
+        sequence=5, timestamp_ms=10,
+    ))
+    assert gateway.current_mode is ControlMode.DRIVE
+    events = gateway.handle(command(
+        CommandName.MODE_SET, ModeSetPayload("head"),
+        sequence=6, timestamp_ms=11,
+    ))
+    assert gateway.current_mode is ControlMode.HEAD_ONLY
+    assert len(events) == 1
+    assert isinstance(events[0], GatewayStateEvent)
+    assert events[0].current_mode is ControlMode.HEAD_ONLY
+    assert events[0].state is GatewayState.ACTIVE
+
+
+def test_base_drive_rejected_in_arm():
+    gateway, clock = make_gateway()
+    start_arm(gateway)
+    activate_arm(gateway)
+    event = rejection(gateway.handle(command(
+        CommandName.BASE_DRIVE,
+        BaseDrivePayload(0.5, 0.0, True),
+        session_id="session-a",
+        sequence=5, timestamp_ms=10,
+    )))
+    assert event.code is RejectionCode.MODE_BLOCKED
+
+
+def test_arm_jog_rejected_in_drive():
+    gateway, clock = make_gateway()
+    start_drive(gateway)
+    activate_drive(gateway)
+    event = rejection(gateway.handle(command(
+        CommandName.ARM_JOG,
+        ArmJogPayload("JOINT_JOG", True, {"shoulder_pan": 0.5}),
+        session_id="session-d",
+        sequence=5, timestamp_ms=10,
+    )))
+    assert event.code is RejectionCode.MODE_BLOCKED
+
+
+def test_base_drive_rejected_during_transition():
+    gateway, clock = make_gateway()
+    start_drive(gateway)
+    activate_drive(gateway)
+    gateway.handle(command(
+        CommandName.MODE_SET, ModeSetPayload("arm"),
+        session_id="session-d",
+        sequence=5, timestamp_ms=10,
+    ))
+    assert gateway.transition is ModeTransition.STOPPING_BASE
+    event = rejection(gateway.handle(command(
+        CommandName.BASE_DRIVE,
+        BaseDrivePayload(0.5, 0.0, True),
+        session_id="session-d",
+        sequence=6, timestamp_ms=11,
+    )))
+    assert event.code is RejectionCode.MODE_BLOCKED
+
+
+def test_deadman_false_emits_immediate_zero():
+    gateway, clock = make_gateway()
+    start_drive(gateway)
+    activate_drive(gateway)
+    events = gateway.handle(command(
+        CommandName.BASE_DRIVE,
+        BaseDrivePayload(0.0, 0.0, False),
+        session_id="session-d",
+        sequence=5, timestamp_ms=10,
+    ))
+    target = next(e for e in events if isinstance(e, BaseTargetEvent))
+    assert target.throttle == 0.0
+    assert target.steering == 0.0
+    assert target.command_zeroed is True
+
+
+def test_base_drive_shapes_throttle():
+    gateway, clock = make_gateway()
+    start_drive(gateway)
+    activate_drive(gateway)
+    events = gateway.handle(command(
+        CommandName.BASE_DRIVE,
+        BaseDrivePayload(0.5, 0.3, True),
+        session_id="session-d",
+        sequence=5, timestamp_ms=10,
+    ))
+    target = next(e for e in events if isinstance(e, BaseTargetEvent))
+    assert target.deadman is True
+    assert target.command_zeroed is False
+
+
+def test_arm_jog_passthrough():
+    gateway, clock = make_gateway()
+    start_arm(gateway)
+    activate_arm(gateway)
+    events = gateway.handle(command(
+        CommandName.ARM_JOG,
+        ArmJogPayload("JOINT_JOG", True, {"shoulder_pan": 0.5}),
+        session_id="session-a",
+        sequence=5, timestamp_ms=10,
+    ))
+    target = next(e for e in events if isinstance(e, ArmTargetEvent))
+    assert target.kind == "JOINT_JOG"
+    assert target.deadman is True
+    assert target.command_zeroed is False
+    assert target.joint_velocity == {"shoulder_pan": 0.5}
+
+
+def test_arm_jog_deadman_false_emits_zero():
+    gateway, clock = make_gateway()
+    start_arm(gateway)
+    activate_arm(gateway)
+    events = gateway.handle(command(
+        CommandName.ARM_JOG,
+        ArmJogPayload("JOINT_JOG", False, {"shoulder_pan": 0.5}),
+        session_id="session-a",
+        sequence=5, timestamp_ms=10,
+    ))
+    target = next(e for e in events if isinstance(e, ArmTargetEvent))
+    assert target.deadman is False
+    assert target.command_zeroed is True
+    assert target.joint_velocity == {}
+
+
+def test_estop_reset_clears_latch():
+    gateway, clock = make_gateway()
+    estop(gateway)
+    assert gateway.state is GatewayState.ESTOP_LATCHED
+    events = gateway.handle(command(
+        CommandName.EMERGENCY_STOP_RESET, EmptyPayload(),
+        session_id="reset", sequence=1,
+    ))
+    assert gateway.state is GatewayState.IDLE
+    assert gateway.current_mode is ControlMode.HEAD_ONLY
+    assert isinstance(events[0], GatewayStateEvent)
+    assert events[0].state is GatewayState.IDLE
+
+
+def test_estop_reset_rejected_if_not_latched():
+    gateway, clock = make_gateway()
+    event = rejection(gateway.handle(command(
+        CommandName.EMERGENCY_STOP_RESET, EmptyPayload(),
+        session_id="reset", sequence=1,
+    )))
+    assert event.code is RejectionCode.MODE_BLOCKED
+
+
+def test_mode_transition_emits_base_zero():
+    gateway, clock = make_gateway()
+    start_drive(gateway)
+    activate_drive(gateway)
+    events = gateway.handle(command(
+        CommandName.MODE_SET, ModeSetPayload("arm"),
+        session_id="session-d",
+        sequence=5, timestamp_ms=10,
+    ))
+    base_targets = [e for e in events if isinstance(e, BaseTargetEvent)]
+    if base_targets:
+        assert base_targets[0].command_zeroed is True
+
+
+def test_watchdog_emits_mode_aware_zero():
+    gateway, clock = make_gateway()
+    start_drive(gateway)
+    activate_drive(gateway)
+    clock.advance_ms(251)
+    events = gateway.poll()
+    assert any(isinstance(e, BaseTargetEvent) for e in events)
+    gateway2, clock2 = make_gateway()
+    start_arm(gateway2)
+    activate_arm(gateway2)
+    clock2.advance_ms(251)
+    events2 = gateway2.poll()
+    assert any(isinstance(e, ArmTargetEvent) for e in events2)
+
+
+def test_handle_base_stop_ack_advances_brake_dwell():
+    gateway, clock = make_gateway()
+    start_drive(gateway)
+    activate_drive(gateway)
+    gateway.handle(command(
+        CommandName.MODE_SET, ModeSetPayload("arm"),
+        session_id="session-d",
+        sequence=5, timestamp_ms=10,
+    ))
+    assert gateway.transition is ModeTransition.STOPPING_BASE
+    gateway.handle_base_stop_ack(True, True)
+    assert gateway._stop_ack_pending is False
+    assert gateway._stop_ack_deadline_ns is not None
+
+
+def test_mode_transition_completes_after_brake_dwell():
+    gateway, clock = make_gateway()
+    start_drive(gateway)
+    activate_drive(gateway)
+    now = clock.now_ns
+    gateway.handle(command(
+        CommandName.MODE_SET, ModeSetPayload("arm"),
+        session_id="session-d",
+        sequence=5, timestamp_ms=10,
+    ))
+    gateway.handle_base_stop_ack(True, True)
+    origin = clock.now_ns
+    clock.now_ns = origin + 500_000_000
+    events = gateway.poll()
+    assert gateway.current_mode is ControlMode.ARM
+    assert gateway.transition is ModeTransition.NONE
+    assert gateway.requested_mode is None
+
+
+def test_estop_reset_clears_stop_ack_state():
+    gateway, clock = make_gateway()
+    start_drive(gateway)
+    activate_drive(gateway)
+    gateway.handle(command(
+        CommandName.MODE_SET, ModeSetPayload("arm"),
+        session_id="session-d",
+        sequence=5, timestamp_ms=10,
+    ))
+    gateway._stop_ack_pending = True
+    estop(gateway, session_id="e", sequence=99)
+    events = gateway.handle(command(
+        CommandName.EMERGENCY_STOP_RESET, EmptyPayload(),
+        session_id="reset", sequence=1,
+    ))
+    assert gateway.current_mode is ControlMode.HEAD_ONLY
+    assert gateway._stop_ack_pending is False
+    assert gateway._stop_ack_deadline_ns is None

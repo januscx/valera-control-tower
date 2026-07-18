@@ -8,14 +8,21 @@ from robot.vr_gateway import wire
 from robot.vr_gateway.adapter import VrGatewayAdapter
 from robot.vr_gateway.gateway import VrGateway
 from robot.vr_gateway.messages import (
+    ArmJogPayload,
+    ArmTargetEvent,
+    BaseDrivePayload,
+    BaseStopAckEvent,
+    BaseTargetEvent,
     CommandEnvelope,
     CommandName,
     CommandRejectedEvent,
+    ControlMode,
     EmptyPayload,
     EventName,
     GatewayState,
     GatewayStateEvent,
     ModeSetPayload,
+    ModeTransition,
     NeckTargetEvent,
     PosePayload,
     Position,
@@ -329,7 +336,7 @@ def test_decode_rejects_non_object_envelope_and_non_string_input():
 def test_encode_event_serializes_all_four_event_types_with_exact_keys():
     from robot.vr_gateway.messages import CommandRejectedEvent
 
-    state_event = GatewayStateEvent(11, GatewayState.HEAD_ACTIVE, "s-1", 2)
+    state_event = GatewayStateEvent(11, GatewayState.ACTIVE, ControlMode.HEAD_ONLY, "s-1", 2)
     neck_event = NeckTargetEvent(22, "s-1", 3, 1.25, -2.5)
     stop_event = SafetyStopEvent(33, StopReason.WATCHDOG, "s-1", 4)
     rejected_event = CommandRejectedEvent(
@@ -339,11 +346,14 @@ def test_encode_event_serializes_all_four_event_types_with_exact_keys():
     state_doc = json.loads(wire.encode_event(state_event))
     assert state_doc == {
         "gateway_monotonic_ns": 11,
-        "state": "HEAD_ACTIVE",
+        "state": "ACTIVE",
         "session_id": "s-1",
         "sequence": 2,
         "schema_version": "0.1",
         "event_type": EventName.GATEWAY_STATE.value,
+        "current_mode": "HEAD_ONLY",
+        "requested_mode": None,
+        "transition": "NONE",
     }
     neck_doc = json.loads(wire.encode_event(neck_event))
     assert neck_doc == {
@@ -381,7 +391,7 @@ def test_encode_event_serializes_all_four_event_types_with_exact_keys():
 
 
 def test_encode_event_serializes_nullable_event_correlation_as_null():
-    event = GatewayStateEvent(5, GatewayState.IDLE, None, None)
+    event = GatewayStateEvent(5, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None)
     doc = json.loads(wire.encode_event(event))
     assert doc["session_id"] is None
     assert doc["sequence"] is None
@@ -423,9 +433,9 @@ def test_adapter_accepts_valid_stream_and_returns_encoded_events_in_order():
     assert [json.loads(e)["event_type"] for e in start_events] == ["gateway.state"]
     assert json.loads(start_events[0])["state"] == "AWAITING_RECENTER"
     assert [json.loads(e)["event_type"] for e in recenter_events] == ["gateway.state"]
-    assert json.loads(recenter_events[0])["state"] == "HEAD_ACTIVE"
+    assert json.loads(recenter_events[0])["state"] == "ACTIVE"
     assert [json.loads(e)["event_type"] for e in pose_events] == ["neck.target"]
-    assert gateway.state is GatewayState.HEAD_ACTIVE
+    assert gateway.state is GatewayState.ACTIVE
 
 
 def test_adapter_preserves_order_of_multiple_events_from_session_stop():
@@ -685,7 +695,7 @@ def test_decode_rejects_unbalanced_brackets_in_depth_scanner():
 
 def test_encode_event_rejects_plain_string_for_state_enum():
     event = _mutated_event(
-        GatewayStateEvent(1, GatewayState.IDLE, None, None), state="IDLE"
+        GatewayStateEvent(1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None), state="IDLE"
     )
     with pytest.raises(wire.WireError, match="GatewayState"):
         wire.encode_event(event)
@@ -710,7 +720,7 @@ def test_encode_event_rejects_plain_string_for_rejection_code_enum():
 
 def test_encode_event_rejects_plain_string_for_event_type_enum():
     event = _mutated_event(
-        GatewayStateEvent(1, GatewayState.IDLE, None, None),
+        GatewayStateEvent(1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None),
         event_type="gateway.state",
     )
     with pytest.raises(wire.WireError, match="event_type"):
@@ -842,7 +852,7 @@ def test_head_pose_accepts_null_position():
 
 @pytest.mark.parametrize(
     "requested_mode",
-    ["HEAD", "head ", " head", "drive", "arm", "", "inspection", "head\0"],
+    ["HEAD", "head ", " head", "", "inspection", "head\0"],
 )
 def test_decode_rejects_session_start_requested_mode_other_than_head(requested_mode):
     with pytest.raises(wire.WireError):
@@ -1008,7 +1018,7 @@ def test_encode_event_rejects_unsupported_object():
 
 
 def test_encode_event_rejects_event_with_wrong_event_type():
-    event = GatewayStateEvent(1, GatewayState.IDLE, None, None)
+    event = GatewayStateEvent(1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None)
     bad = _mutated_event(
         event,
         event_type=EventName.NECK_TARGET,
@@ -1018,20 +1028,20 @@ def test_encode_event_rejects_event_with_wrong_event_type():
 
 
 def test_encode_event_rejects_event_with_wrong_schema_version():
-    event = GatewayStateEvent(1, GatewayState.IDLE, None, None)
+    event = GatewayStateEvent(1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None)
     bad = _mutated_event(event, schema_version="0.2")
     with pytest.raises(wire.WireError, match="schema_version"):
         wire.encode_event(bad)
 
 
 def test_encode_event_rejects_negative_gateway_monotonic_ns():
-    event = GatewayStateEvent(-1, GatewayState.IDLE, None, None)
+    event = GatewayStateEvent(-1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None)
     with pytest.raises(wire.WireError, match="gateway_monotonic_ns"):
         wire.encode_event(event)
 
 
 def test_encode_event_rejects_overflow_gateway_monotonic_ns():
-    event = GatewayStateEvent(wire.MAX_INT64 + 1, GatewayState.IDLE, None, None)
+    event = GatewayStateEvent(wire.MAX_INT64 + 1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None)
     with pytest.raises(wire.WireError, match="gateway_monotonic_ns"):
         wire.encode_event(event)
 
@@ -1049,13 +1059,13 @@ def test_encode_event_rejects_infinity_tilt_degrees():
 
 
 def test_encode_event_rejects_partial_correlation_session_only():
-    event = GatewayStateEvent(1, GatewayState.IDLE, "s-1", None)
+    event = GatewayStateEvent(1, GatewayState.IDLE, ControlMode.HEAD_ONLY, "s-1", None)
     with pytest.raises(wire.WireError, match="correlation"):
         wire.encode_event(event)
 
 
 def test_encode_event_rejects_partial_correlation_sequence_only():
-    event = GatewayStateEvent(1, GatewayState.HEAD_ACTIVE, None, 5)
+    event = GatewayStateEvent(1, GatewayState.ACTIVE, ControlMode.HEAD_ONLY, None, 5)
     with pytest.raises(wire.WireError, match="correlation"):
         wire.encode_event(event)
 
@@ -1080,7 +1090,7 @@ def test_encode_event_rejects_neck_target_with_out_of_range_sequence():
 
 def test_encode_event_rejects_unknown_gateway_state():
     event = _mutated_event(
-        GatewayStateEvent(1, GatewayState.IDLE, None, None), state="FROBNICATING"
+        GatewayStateEvent(1, GatewayState.IDLE, ControlMode.HEAD_ONLY, None, None), state="FROBNICATING"
     )
     with pytest.raises(wire.WireError, match="state"):
         wire.encode_event(event)
@@ -1131,3 +1141,199 @@ def test_encode_event_uses_allow_nan_false_and_serializes_clean_event():
     document = json.loads(text)
     assert document["pan_degrees"] == 1.25
     assert document["hold"] is False
+
+
+# --- New command decode: base.drive, arm.jog, emergency_stop.reset ---
+
+
+BASE_DRIVE_JSON = json.dumps(
+    {
+        "schema_version": "0.1",
+        "command": "base.drive",
+        "session_id": "s1",
+        "sequence": 1,
+        "timestamp_ms": 0,
+        "payload": {"throttle": 0.5, "steering": -0.3, "deadman": True},
+    }
+)
+
+ARM_JOG_JSON = json.dumps(
+    {
+        "schema_version": "0.1",
+        "command": "arm.jog",
+        "session_id": "s1",
+        "sequence": 1,
+        "timestamp_ms": 0,
+        "payload": {
+            "kind": "JOINT_JOG",
+            "deadman": True,
+            "joint_velocity": {"shoulder_pan": 0.3},
+        },
+    }
+)
+
+EMERGENCY_STOP_RESET_JSON = json.dumps(
+    {
+        "schema_version": "0.1",
+        "command": "emergency_stop.reset",
+        "session_id": "s1",
+        "sequence": 1,
+        "timestamp_ms": 0,
+        "payload": {},
+    }
+)
+
+
+def test_decode_base_drive():
+    cmd = wire.decode_command(BASE_DRIVE_JSON)
+    assert cmd.command is CommandName.BASE_DRIVE
+    assert isinstance(cmd.payload, BaseDrivePayload)
+    assert cmd.payload.throttle == 0.5
+    assert cmd.payload.deadman is True
+
+
+def test_decode_arm_jog():
+    cmd = wire.decode_command(ARM_JOG_JSON)
+    assert cmd.command is CommandName.ARM_JOG
+    assert isinstance(cmd.payload, ArmJogPayload)
+    assert cmd.payload.kind == "JOINT_JOG"
+    assert cmd.payload.joint_velocity["shoulder_pan"] == 0.3
+
+
+def test_decode_emergency_stop_reset():
+    cmd = wire.decode_command(EMERGENCY_STOP_RESET_JSON)
+    assert cmd.command is CommandName.EMERGENCY_STOP_RESET
+    assert isinstance(cmd.payload, EmptyPayload)
+
+
+def test_decode_base_drive_rejects_wrong_keys():
+    for bad_payload in [
+        {},
+        {"throttle": 0.5, "steering": -0.3},
+        {"throttle": 0.5, "steering": -0.3, "deadman": True, "extra": 1},
+        {"throttle": "fast", "steering": -0.3, "deadman": True},
+    ]:
+        doc = json.loads(BASE_DRIVE_JSON)
+        doc["payload"] = bad_payload
+        with pytest.raises(wire.WireError):
+            wire.decode_command(json.dumps(doc))
+
+
+def test_decode_base_drive_rejects_non_boolean_deadman():
+    doc = json.loads(BASE_DRIVE_JSON)
+    doc["payload"]["deadman"] = 1
+    with pytest.raises(wire.WireError):
+        wire.decode_command(json.dumps(doc))
+
+
+def test_decode_arm_jog_rejects_wrong_kind():
+    doc = json.loads(ARM_JOG_JSON)
+    doc["payload"]["kind"] = "POSE_JOG"
+    with pytest.raises(wire.WireError, match="kind"):
+        wire.decode_command(json.dumps(doc))
+
+
+def test_decode_arm_jog_rejects_non_dict_joint_velocity():
+    doc = json.loads(ARM_JOG_JSON)
+    doc["payload"]["joint_velocity"] = [0.3]
+    with pytest.raises(wire.WireError):
+        wire.decode_command(json.dumps(doc))
+
+
+def test_decode_arm_jog_rejects_out_of_range_joint():
+    doc = json.loads(ARM_JOG_JSON)
+    doc["payload"]["joint_velocity"] = {"shoulder_pan": 1.5}
+    with pytest.raises(wire.WireError, match="must be in"):
+        wire.decode_command(json.dumps(doc))
+
+
+def test_decode_emergency_stop_reset_rejects_non_empty_payload():
+    doc = json.loads(EMERGENCY_STOP_RESET_JSON)
+    doc["payload"] = {"unexpected": 1}
+    with pytest.raises(wire.WireError):
+        wire.decode_command(json.dumps(doc))
+
+
+# --- Encode new events: base.target, arm.target, base.stop_ack ---
+
+
+def test_encode_base_target_event():
+    event = BaseTargetEvent(1000, 0.5, -0.3, True, False)
+    encoded = wire.encode_event(event)
+    doc = json.loads(encoded)
+    assert doc["event_type"] == "base.target"
+    assert doc["throttle"] == 0.5
+    assert doc["steering"] == -0.3
+    assert doc["deadman"] is True
+    assert doc["command_zeroed"] is False
+
+
+def test_encode_arm_target_event():
+    event = ArmTargetEvent(1000, "JOINT_JOG", True, False, {"shoulder_pan": 0.3})
+    encoded = wire.encode_event(event)
+    doc = json.loads(encoded)
+    assert doc["event_type"] == "arm.target"
+    assert doc["kind"] == "JOINT_JOG"
+    assert doc["deadman"] is True
+    assert doc["command_zeroed"] is False
+    assert doc["joint_velocity"] == {"shoulder_pan": 0.3}
+
+
+def test_encode_arm_target_event_with_command_zeroed_allows_empty_dict():
+    event = ArmTargetEvent(1000, "JOINT_JOG", False, True, {})
+    encoded = wire.encode_event(event)
+    doc = json.loads(encoded)
+    assert doc["event_type"] == "arm.target"
+    assert doc["command_zeroed"] is True
+    assert doc["joint_velocity"] == {}
+
+
+def test_encode_base_stop_ack_event():
+    event = BaseStopAckEvent(1000, True, False)
+    encoded = wire.encode_event(event)
+    doc = json.loads(encoded)
+    assert doc["event_type"] == "base.stop_ack"
+    assert doc["command_zeroed"] is True
+    assert doc["stationary_verified"] is False
+
+
+# --- Session start now accepts drive and arm ---
+
+
+def test_decode_session_start_accepts_drive():
+    cmd = wire.decode_command(_session_start(requested_mode="drive"))
+    assert cmd.payload.requested_mode == "drive"
+
+
+def test_decode_session_start_accepts_arm():
+    cmd = wire.decode_command(_session_start(requested_mode="arm"))
+    assert cmd.payload.requested_mode == "arm"
+
+
+# --- Gateway state event includes new fields ---
+
+
+def test_encode_gateway_state_event_contains_new_fields():
+    event = GatewayStateEvent(
+        11, GatewayState.ACTIVE, ControlMode.HEAD_ONLY, "s-1", 2
+    )
+    doc = json.loads(wire.encode_event(event))
+    assert doc["current_mode"] == "HEAD_ONLY"
+    assert doc["requested_mode"] is None
+    assert doc["transition"] == "NONE"
+
+
+def test_encode_gateway_state_event_with_requested_mode_and_transition():
+    event = GatewayStateEvent(
+        11,
+        GatewayState.ACTIVE,
+        ControlMode.DRIVE,
+        "s-1",
+        2,
+        requested_mode=ControlMode.ARM,
+        transition=ModeTransition.STOPPING_BASE,
+    )
+    doc = json.loads(wire.encode_event(event))
+    assert doc["current_mode"] == "DRIVE"
+    assert doc["requested_mode"] == "ARM"
+    assert doc["transition"] == "STOPPING_BASE"
