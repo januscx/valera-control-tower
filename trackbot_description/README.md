@@ -13,9 +13,11 @@ tracked chassis.
 
 `urdf/trackbot_wiper_v2.urdf` keeps the original mobile base unchanged and
 adds the SO-101 follower arm from the official TheRobotStudio simulation
-model. The arm is fixed to the chassis top at `(0.165, -0.090, 0.065)` m in
-`base_link`: 165 mm forward, 90 mm to the right, and 65 mm up. Its zero-yaw
-direction is the robot's `+X` (forward).
+model. The current URDF mounts the arm at `(0.120, -0.075, 0.065)` m in
+`base_link`: 120 mm forward, 75 mm to the right, and 65 mm up. Its zero-yaw
+direction is the robot's `+X` (forward). This provisional mount must be
+verified against the source CAD or a documented direct measurement before it is
+treated as physically accurate.
 
 The mounting offsets are reconstructed from the supplied tape-measure photos;
 they should be treated as approximately +/- 5 mm until checked directly on
