@@ -29,7 +29,7 @@ faithful scan of the physical room.
 | --- | --- |
 | Host stack | Ubuntu 24.04, ROS 2 Jazzy, Gazebo Harmonic. Do not use Gazebo Classic. |
 | Control architecture | Keep `valera_vr_gateway` as the only Quest command ingress and safety-policy owner. Gazebo receives only internal ROS 2 commands. |
-| Base command adapter | Add a simulation-only `sim_base_bridge`: `/cmd_vel` (`geometry_msgs/msg/Twist`) to `/valera/base_controller/cmd_vel` (`geometry_msgs/msg/TwistStamped`). |
+| Base command adapter | The gateway transport publishes encoded base targets to `/valera/internal/base_target`; `sim_base_bridge` alone derives stamped controller `cmd_vel` from them. |
 | Base physics | Four hidden contact wheels: two on each side, equal commanded speed per side. Tracks and visible sprockets are visual-only and have no collision. |
 | Arm control | A simulation-only arm velocity bridge maps the existing `JOINT_JOG` velocities to `velocity_controllers/JointGroupVelocityController`; it does not synthesize trajectories. |
 | Gazebo actuation | `gz_ros2_control` owns simulated joint interfaces; ROS 2 controllers own motion commands. |
@@ -66,17 +66,31 @@ gateway work, not simulation work.
 The base feedback path is deliberately local and not Quest-facing:
 
 ```text
-base zero target (stop token)
+gateway `BaseTargetEvent` (stop token)
+  -> /valera/internal/base_target
   -> sim_base_bridge / diff_drive_controller
   -> /valera/base_controller/odom
   -> sim_stationary_detector
-  -> matching verified stop acknowledgement
-  -> gateway.handle_base_stop_ack(...)
+  -> /valera/internal/base_stop_ack (matching token)
+  -> gateway ROS node -> gateway.handle_base_stop_ack(...)
 ```
 
 The detector tracks the latest zero-command token, never derives a token from
 an uncorrelated odometry message, and resets its dwell timer if either command
-or measured speed becomes non-zero.
+or measured speed becomes non-zero. It also requires consecutive fresh odometry
+samples: each sample's monotonic receive age must be below configured
+`odom_receive_timeout`, and an expired/missing sample immediately resets dwell
+and forbids acknowledgement. A Gazebo pause therefore cannot convert one old
+zero-speed message into a verified stop.
+
+`JointGroupVelocityController` has no command timeout. The arm velocity bridge
+therefore owns a steady-time lease. It publishes an all-zero array on lease
+expiry even if no further gateway event arrives, and emits a monotonic heartbeat
+for an external `sim_actuator_supervisor`. If that heartbeat disappears, the
+supervisor publishes its own all-zero arm command and requests controller
+deactivation; the launch profile also invokes this stop/deactivation path on an
+unexpected arm-bridge process exit. The controller must be configured and
+tested so deactivation does not retain a non-zero velocity command.
 
 ## Package and file boundaries
 
@@ -99,11 +113,14 @@ test that confirms all controlled joints match `trackbot_description`. It must
 not maintain an untracked hand-edited second copy of the robot geometry.
 
 `valera_vr_gateway` remains responsible for its current JSON contract,
-mode/watchdog/E-stop state, and its publications:
+mode/watchdog/E-stop state, and its Quest-facing publications:
 
-- `/cmd_vel` — `geometry_msgs/msg/Twist`;
-- `/valera/arm/command` — `std_msgs/msg/String` containing the existing JSON;
+- `/valera/vr_gateway/command` — `std_msgs/msg/String` command ingress;
 - `/valera/vr_gateway/event` — `std_msgs/msg/String`.
+
+The gateway ROS node additionally owns the internal encoded base-target and
+base-stop-ack subscriptions/publications defined below. It must not convert a
+gateway event directly to `/cmd_vel`; only `sim_base_bridge` may do that.
 
 Neither new bridge is a hardware adapter. Both must be launchable only from the
 simulation profile and must never enumerate, open, or command physical devices.
@@ -116,15 +133,16 @@ avoid topic ambiguity.
 | Producer | Topic / interface | Type | Consumer | Contract |
 | --- | --- | --- | --- | --- |
 | Quest via rosbridge | `/valera/vr_gateway/command` | `std_msgs/msg/String` | gateway | Existing raw JSON command contract only. |
-| gateway | `/cmd_vel` | `geometry_msgs/msg/Twist` | `sim_base_bridge` | Existing bounded base target output. |
-| `sim_base_bridge` | `/valera/base_controller/cmd_vel` | `geometry_msgs/msg/TwistStamped` | `diff_drive_controller` | Validate finite values, stamp with ROS simulation time, preserve zero commands, reject any invalid input. |
+| gateway ROS node | `/valera/internal/base_target` | `std_msgs/msg/String` | `sim_base_bridge` | Canonical encoded `BaseTargetEvent`, extended with required `stop_token` for zero transition targets. This is the only carrier of base safety metadata. |
+| `sim_base_bridge` | `/valera/base_controller/cmd_vel` | `geometry_msgs/msg/TwistStamped` | `diff_drive_controller` | Derive bounded controller velocity from the internal base target; validate finite values, stamp with ROS simulation time, and preserve zero commands. |
 | gateway | `/valera/arm/command` | `std_msgs/msg/String` | sim arm velocity bridge | Existing raw JSON `arm.target` event. |
 | sim arm velocity bridge | `/valera/arm_velocity_controller/commands` | `std_msgs/msg/Float64MultiArray` | `velocity_controllers/JointGroupVelocityController` | Ordered, finite, scaled joint velocities; all zeros on deadman release, watchdog, E-stop, or session stop. |
 | controller manager | `/joint_states` | `sensor_msgs/msg/JointState` | `robot_state_publisher`, RViz, Control Tower adapters | Simulated state only. |
 | base controller | `/valera/base_controller/odom`, `/tf` | `nav_msgs/msg/Odometry`, TF | diagnostics / later Nav2 | Odometry is an estimate, not ground truth. |
-| stationary detector | gateway internal acknowledgement | correlated stop token + verified status | gateway | Never exposed through rosbridge; completes only DRIVE → ARM stop sequencing. |
+| `sim_stationary_detector` | `/valera/internal/base_stop_ack` | `std_msgs/msg/String` | gateway ROS node | Canonical encoded `BaseStopAckEvent`, extended with required `stop_token`; the node rejects unmatched, unverified, stale, or malformed acknowledgements before calling the gateway. Never exposed through rosbridge. |
 | Gazebo sensor bridge | `/valera/sim/camera/*`, `/valera/sim/imu` | ROS sensor messages | simulation vision/evidence adapter | Published with simulation-time headers. |
 | gateway | `/valera/vr_gateway/event` | `std_msgs/msg/String` | Quest via rosbridge | Existing event contract only. |
+| arm velocity bridge | `/valera/internal/arm_bridge_heartbeat` | `std_msgs/msg/UInt64` | `sim_actuator_supervisor` | Monotonic sequence/heartbeat; loss triggers zero command and controller deactivation. Never exposed through rosbridge. |
 
 The `diff_drive_controller` command topic is deliberately stamped: Jazzy
 requires `geometry_msgs/msg/TwistStamped` on `~/cmd_vel`. Its built-in timeout
@@ -165,15 +183,22 @@ The arm controller allow-list and fixed command order is `shoulder_pan`,
 `Float64MultiArray` on `~/commands`, so the bridge maps the gateway's
 normalized `JOINT_JOG` values `[-1, 1]` to five separately configurable
 revolute-joint limits in rad/s and a separately configurable gripper limit in
-m/s. The bridge rejects unknown joints, non-finite values, and missing command
-members; omitted allow-listed joints are explicitly zero.
+m/s. The command envelope fields `kind`, `deadman`, and `joint_velocity` are
+mandatory. Individual allow-listed joint members inside `joint_velocity` are
+optional and are explicitly zero when omitted. The bridge rejects unknown
+joints and non-finite values. A missing or stale `/joint_states` sample, judged
+by its monotonic receive timestamp against configured
+`joint_state_receive_timeout`, blocks any non-zero output; it never blocks
+publication of the all-zero stop array.
 
 Deadman release, gateway watchdog, E-stop, and `session.stop` publish an
 all-zero array in the same fixed order. Joint positions are consumed only to
 prevent motion farther beyond a URDF limit; they are not integrated into a
 trajectory. `left_clamp` remains a URDF mimic joint and has state but no
-independent command interface. This v1 controller is not a substitute for a
-future trajectory/planning interface.
+independent command interface. The bridge renews its steady-time command lease
+only after producing a valid output; expiry sends zero without waiting for ROS
+or simulation time. This v1 controller is not a substitute for a future
+trajectory/planning interface.
 
 ### Sensor assumptions
 
@@ -279,14 +304,17 @@ works.
 - Description validation confirms the controlled joint allow-lists, mimic
   relationship, and wheel group names against `trackbot_description`.
 - Base bridge tests cover malformed/non-finite input, zero command propagation,
-  stamped output, and no command after a rejected message.
+  stamped output, stop-token preservation, and no command after a rejected
+  message.
 - Arm velocity bridge tests cover JSON validation, fixed joint ordering,
   revolute/prismatic scaling, all-zero stop commands, position-limit guards,
+  stale joint-state rejection of non-zero outputs, steady-time lease expiry,
   mimic exclusion, and no hardware imports or device access.
 - Gateway safety-hardening tests cover zero outputs for watchdog, E-stop and
   `session.stop`; correlated dwell-qualified base acknowledgement; rejection of
-  `stationary_verified=false`; and deterministic completion/failure of both
-  mode-switch directions.
+  `stationary_verified=false`, missing/old odometry, and unmatched stop tokens;
+  deterministic completion/failure of both mode-switch directions; and arm
+  controller zero/deactivation when either the gateway or arm bridge dies.
 - Launch configuration tests assert profile membership, topic names, namespace,
   `use_sim_time`, controller limits, and rosbridge allow-lists.
 
@@ -299,6 +327,9 @@ works.
 - A valid arm jog reaches the named simulated joints at configured velocities;
   deadman release, watchdog, E-stop and `session.stop` produce all-zero arm
   controller output; no independent `left_clamp` command exists.
+- Killing the gateway renews neither base nor arm leases; the arm bridge emits
+  zero on lease expiry. Killing the arm bridge causes the external supervisor
+  to emit zero and deactivate the arm velocity controller.
 - Camera and IMU messages arrive through the sensor bridge with simulation-time
   headers; camera data can produce a Control Tower simulation evidence event.
 - The full local scenario records a deterministic mission result without Quest,
